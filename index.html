@@ -50,8 +50,8 @@ svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-l
 .sync b{width:8px;height:8px;border-radius:50%;background:var(--warn);flex:none}
 .sync.ok b{background:var(--pos)}
 main{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:6px 14px 24px}
-.tabbar{flex:none;display:grid;grid-template-columns:repeat(5,1fr);background:var(--surface);border-top:1px solid var(--line);padding:6px 6px calc(6px + env(safe-area-inset-bottom,0px))}
-.tb{border:0;background:none;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 0;color:var(--muted);font-size:11px;font-weight:600;cursor:pointer}
+.tabbar{flex:none;display:grid;grid-template-columns:repeat(6,1fr);background:var(--surface);border-top:1px solid var(--line);padding:6px 6px calc(6px + env(safe-area-inset-bottom,0px))}
+.tb{border:0;background:none;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 0;color:var(--muted);font-size:10.5px;min-width:0;font-weight:600;cursor:pointer}
 .tb[aria-selected="true"]{color:var(--accent)}
 .tb.add span{width:44px;height:44px;margin-top:-4px;border-radius:50%;background:var(--accent);color:#fff;display:grid;place-items:center}
 .tb.add{color:var(--ink)}
@@ -156,6 +156,46 @@ details.edit form{margin-top:12px}
 .prog i{display:block;height:100%;background:var(--accent);border-radius:999px}
 .del{border:0;background:none;color:var(--muted);font-size:20px;line-height:1;padding:4px 6px;cursor:pointer;flex:none}
 
+
+/* ---- bancos desplegables ---- */
+.acc+.acc{border-top:1px solid var(--line)}
+.acc .row+.row{border-top:0}
+.acc-c{transition:transform .2s}
+.acc.open .acc-c{transform:rotate(90deg)}
+.acc-b{display:none;padding:0 4px 8px 12px}
+.acc.open .acc-b{display:block}
+.sub{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px dashed var(--line)}
+.sub .row-m b{font-size:14px;white-space:normal;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.tapname{cursor:pointer}
+.sub-c{flex:none;display:flex;flex-direction:column;align-items:flex-end;min-width:72px;background:var(--surface-2);border-radius:12px;padding:6px 9px}
+.sub-c small{color:var(--muted);font-size:11px}
+.sub-c b{font-size:13.5px;font-weight:700}
+/* ---- gráficos circulares y barras ---- */
+.chips.in{margin:0 0 12px;padding:0}
+.donut{display:grid;grid-template-columns:140px minmax(0,1fr);gap:14px;align-items:center}
+.dn-c{position:relative;height:140px}
+.dn-l{display:grid;grid-template-columns:minmax(0,1fr);gap:2px;min-width:0}
+.dn-r{min-width:0}
+.dn-r{display:flex;align-items:center;gap:8px;font-size:13.5px;padding:5px 6px;border-radius:10px}
+.dn-r:active{background:var(--surface-2)}
+.dn-r i{width:10px;height:10px;border-radius:3px;flex:none}
+.dn-r span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dn-r b{font-weight:700}
+.hbar{display:grid;grid-template-columns:minmax(0,38%) 1fr 58px;gap:10px;align-items:center;padding:7px 4px;border-radius:10px;font-size:13.5px}
+.hbar:active{background:var(--surface-2)}
+.hb-l{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hb-t{height:10px;background:var(--surface-2);border-radius:999px;overflow:hidden;position:relative}
+.hb-t i{display:block;height:100%;border-radius:999px}
+.hb-t.ctr i{position:absolute;top:0}
+.hb-t.ctr::after{content:"";position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:var(--muted)}
+.hb-v{text-align:right;font-weight:700}
+.sublab{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;margin:14px 4px 4px}
+.riskscale{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;height:120px;align-items:end;margin:4px 0 8px}
+.rs{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:4px}
+.rs i{width:100%;border-radius:8px 8px 4px 4px;background:var(--surface-2)}
+.rs.on i{background:linear-gradient(180deg,#B53FD8,#2B4CFF)}
+.rs span{font-size:12px;font-weight:700;color:var(--muted)}
+@media (max-width:360px){.donut{grid-template-columns:1fr}}
 /* ---- hojas (explicaciones y ficha) ---- */
 dialog{border:0;padding:0;background:var(--surface);color:var(--ink);max-width:640px;width:100%}
 dialog::backdrop{background:rgba(0,0,0,.45)}
@@ -205,6 +245,7 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
     <section id="inicio"></section>
     <section id="activos" hidden></section>
     <section id="anadir" hidden></section>
+    <section id="analisis" hidden></section>
     <section id="historico" hidden></section>
     <section id="mas" hidden></section>
   </main>
@@ -212,6 +253,7 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
     <button class="tb" data-tab="inicio" aria-selected="true"><svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Inicio</button>
     <button class="tb" data-tab="activos"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 3v9l7 4.5"/></svg>Activos</button>
     <button class="tb add" data-tab="anadir" aria-label="Añadir"><span><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span></button>
+    <button class="tb" data-tab="analisis"><svg viewBox="0 0 24 24"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>Análisis</button>
     <button class="tb" data-tab="historico"><svg viewBox="0 0 24 24"><path d="M4 19h16M6 15l4-5 4 3 5-7"/></svg>Histórico</button>
     <button class="tb" data-tab="mas"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>Más</button>
   </nav>

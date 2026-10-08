@@ -145,7 +145,7 @@ async function graph(path, opts={}){
 function workbookFromState(){
   const P=[],M=[],V=[],Dd=[];
   for (const p of Object.values(S.prod)){
-    P.push({id:p.id,nombre:p.nombre,entidad:p.entidad,tipo:p.tipo,categoria:p.categoria,isin:p.isin||'',estado:p.estado,apertura:p.apertura||'',cierre:p.cierre||'',traspasable:p.traspasable?'sí':'no',coste_pct:p.costePct??'',periodica_importe:p.periodica?.importe??'',periodica_frecuencia:p.periodica?.frecuencia??'',periodica_hasta:p.periodica?.hasta??'',nota:p.nota||''});
+    P.push({id:p.id,nombre:p.nombre,entidad:p.entidad,tipo:p.tipo,categoria:p.categoria,isin:p.isin||'',estado:p.estado,apertura:p.apertura||'',cierre:p.cierre||'',traspasable:p.traspasable?'sí':'no',coste_pct:p.costePct??'',periodica_importe:p.periodica?.importe??'',periodica_frecuencia:p.periodica?.frecuencia??'',periodica_hasta:p.periodica?.hasta??'',nota:p.nota||'',riesgo:p.riesgo??'',clase:p.clase||'',gestion:p.gestion||'',liquidez:p.liquidez||'',regiones:p.regiones||'',sectores:p.sectores||'',divisas:p.divisas||''});
     (p.movs||[]).forEach(m=>M.push({producto_id:p.id,producto:p.nombre,fecha:m.f,tipo:m.tipo,importe:m.imp,externo:m.ext,clasificacion:m.cls||'',fiabilidad:m.fia||'',fecha_aproximada:m.aprox?'sí':'',precio:m.precio??'',unidades:m.uds??'',movimiento:m.mov||'',nota:m.nota||''}));
     (p.vals||[]).forEach(v=>V.push({producto_id:p.id,producto:p.nombre,fecha:v.f,valor:v.v,fiabilidad:v.fia||'',fuente:v.fu||''}));
   }
@@ -164,7 +164,8 @@ function stateFromWorkbook(buf){
   const num=v=> v===''||v==null ? null : +String(v).replace(',','.');
   const prod={};
   P.forEach(r=>{ prod[r.id]={id:String(r.id),nombre:r.nombre,entidad:r.entidad,tipo:r.tipo,categoria:r.categoria||catOf(r.tipo),isin:r.isin,estado:r.estado||'activo',apertura:r.apertura?ds(r.apertura):null,cierre:r.cierre?ds(r.cierre):null,traspasable:String(r.traspasable).toLowerCase().startsWith('s'),costePct:num(r.coste_pct),nota:r.nota,
-    periodica: r.periodica_importe!==''?{importe:num(r.periodica_importe),frecuencia:r.periodica_frecuencia||'mensual',hasta:r.periodica_hasta?ds(r.periodica_hasta):today()}:null,movs:[],vals:[]} });
+    periodica: r.periodica_importe!==''?{importe:num(r.periodica_importe),frecuencia:r.periodica_frecuencia||'mensual',hasta:r.periodica_hasta?ds(r.periodica_hasta):today()}:null,movs:[],vals:[],
+    riesgo:num(r.riesgo),clase:r.clase||'',gestion:r.gestion||'',liquidez:r.liquidez||'',regiones:String(r.regiones||''),sectores:String(r.sectores||''),divisas:String(r.divisas||'')} });
   M.forEach(r=>{ const p=prod[r.producto_id]; if(!p) return; p.movs.push({f:ds(r.fecha),tipo:r.tipo,imp:num(r.importe)||0,ext:num(r.externo)||0,cls:r.clasificacion,fia:r.fiabilidad,aprox:String(r.fecha_aproximada).startsWith('s')||undefined,precio:num(r.precio),uds:num(r.unidades),mov:r.movimiento,nota:r.nota}) });
   V.forEach(r=>{ const p=prod[r.producto_id]; if(!p) return; p.vals.push({f:ds(r.fecha),v:num(r.valor)||0,fia:r.fiabilidad,fu:r.fuente}) });
   Object.values(prod).forEach(p=>{p.movs.sort((a,b)=>a.f<b.f?-1:1);p.vals.sort((a,b)=>a.f<b.f?-1:1)});
@@ -318,6 +319,7 @@ const CATTXT = {
   'Efectivo invertido':'Dinero en cuentas remuneradas y depósitos. No baja de valor y te paga un interés, pero normalmente gana menos de lo que suben los precios.',
   'Efectivo':'Dinero en cuentas corrientes normales que no pagan nada. Es útil para el día a día, pero cada año compra un poco menos por culpa de la inflación.'};
 function explain(key,c){
+  const _r2=explain2(key,c); if(_r2) return _r2;
   const T=(t,v,what,you,tip)=>({t,v,what,you,tip});
   switch(key){
     case 'neto': return T('Patrimonio neto',eur(c.neto),'Es lo que te quedaría si hoy vendieras todo y pagaras todas tus deudas. Se suma todo lo que tienes y se resta lo que debes.',`Tienes ${eur(c.activos)} y debes ${eur(c.deuda)}.<br><b>${eur(c.activos)} − ${eur(c.deuda)} = ${eur(c.neto)}</b>`,'Usa el último valor que metiste de cada producto. Si alguno lleva tiempo sin actualizar, esta cifra puede no ser exacta.');
@@ -382,17 +384,17 @@ document.addEventListener('keydown',e=>{ if((e.key==='Enter'||e.key===' ')&&e.ta
 
 /* ---------- navegación ---------- */
 let TAB='inicio';
-const TITLES={inicio:'Inicio',activos:'Activos',anadir:'Añadir',historico:'Histórico',mas:'Más'};
+const TITLES={inicio:'Inicio',activos:'Activos',anadir:'Añadir',analisis:'Análisis',historico:'Histórico',mas:'Más'};
 function go(t){ TAB=t; document.querySelectorAll('.tb').forEach(b=>b.setAttribute('aria-selected',b.dataset.tab===t));
   document.querySelectorAll('main section').forEach(s=>s.hidden=s.id!==t); $('#ttl').textContent=TITLES[t];
-  if (t==='anadir') renderAct(); if (t==='historico') renderHist(); $('main').scrollTop=0 }
+  if (t==='anadir') renderAct(); if (t==='historico') renderHist(); if (t==='analisis') renderAnalisis(); if (t==='inicio') setTimeout(()=>drawDonuts($('#inicio')),0); $('main').scrollTop=0 }
 document.querySelectorAll('.tb').forEach(b=>b.onclick=()=>{ if(b.dataset.tab==='anadir') actMode=null; go(b.dataset.tab) });
 
 /* ---------- render ---------- */
 function render(){
 
   const lu=lastUpdate(); $('#asof').textContent = lu ? 'Datos a '+fdate(lu) : 'Sin datos';
-  renderInicio(); renderActivos(); renderHist(); renderAct(); renderMas();
+  renderInicio(); renderActivos(); renderHist(); renderAct(); renderMas(); renderAnalisis();
 }
 function noData(){
   if (S.mode==='nuevo') return `<div class="card empty"><b>Tu OneDrive todavía no tiene el Excel de la app.</b><p>Ve a <b>Más › Importar un Excel</b> y elige <b>patrimonio_datos_iniciales.xlsx</b>. Se guardará en OneDrive y desde entonces será tu archivo de trabajo.</p><button class="btn" data-go="mas">Ir a Más</button></div>`;
@@ -438,9 +440,8 @@ function renderInicio(){
   <div class="card"><div class="card-h">Dónde está tu dinero</div>
     ${CATS.map(c=>`<div class="row"${xi('cat',{cat:c,v:t.by[c],share:t.by[c]/tot})}><span class="dot" style="background:var(${CATCOL[c]})"></span><span class="row-m"><b>${c}</b><small>${pctTxt(t.by[c]/tot)} del total</small></span><span class="row-r num">${eur(t.by[c])}</span></div>`).join('')}
   </div>
-  <div class="card"><div class="card-h">Por banco</div>
-    ${ents.map(([e,v])=>{const ps=Object.values(S.prod).filter(p=>p.entidad===e&&value(p)>0);return `<div class="row"${xi('entidad',{e,v,share:v/tot,n:ps.length,names:ps.map(p=>p.nombre).join(', ')})}>${avatar(e)}<span class="row-m"><b>${esc(e)}</b><small>${ps.length} producto${ps.length===1?'':'s'}</small></span><span class="row-r num">${eur(v)}</span></div>`}).join('')}
-  </div>
+  ${inicioCharts()}
+  ${bankAccordion(t)}
   <div class="card"><div class="card-h">Este año</div>
     <div class="row"${xi('year_new',{v:yExt,y})}><span class="row-m"><b>Dinero nuevo</b></span><span class="row-r num">${eur(yExt)}</span></div>
     <div class="row"${xi('gan_y',Object.assign({},cur||{},{y}))}><span class="row-m"><b>Ganancia (aprox.)</b></span><span class="row-r num ${(cur?.gan||0)>=0?'pos':'neg'}">${signed(cur?.gan)}</span></div>
@@ -448,6 +449,7 @@ function renderInicio(){
     <div class="row"${xi('inf',{v:String(S.cfg.ipc).replace('.',',')+' %',src:S.cfg.ipcRef})}><span class="row-m"><b>Inflación de referencia</b></span><span class="row-r num">${String(S.cfg.ipc).replace('.',',')} %</span></div>
   </div>
   ${alerts.length?`<div class="card"><div class="card-h">Avisos</div>${alerts.map(a=>`<div class="row alert"${xi('aviso',{t:a})}><span class="dot" style="background:var(--warn)"></span><span class="row-m"><b class="wrap">${esc(a)}</b></span></div>`).join('')}</div>`:''}`;
+  if (TAB==='inicio') setTimeout(()=>drawDonuts(el),0);
 }
 
 let posFilter='activas';
@@ -575,6 +577,13 @@ function openProduct(id){
       <div class="tile"${xi('cat',{cat:p.categoria,v:s.v,share:totals().activos?s.v/totals().activos:0})}><span>Categoría</span><b>${esc(p.categoria)}</b></div>
       <div class="tile"${xi('p_tras',{t:p.traspasable})}><span>Fiscalidad</span><b>${p.traspasable?'Traspasable':'Tributa al vender'}</b></div>
     </div></div>
+    ${(()=>{ const pr=profile(p); const v=s.v||0; const rows=(mix,dim)=>{ if(!mix) return ''; const sm=Object.values(mix).reduce((a,b)=>a+b,0)||100; return hbars(dim,Object.entries(mix).map(([k2,w])=>({k:k2,v:v*w/sm,share:w/sm,who:[[p.nombre,v*w/sm]]})).sort((a,b)=>b.v-a.v)) };
+      return `<div class="card"><div class="card-h">Perfil del producto</div><div class="tiles three">
+        <div class="tile"${xi('p_riesgo',{r:pr.riesgo,propio:pr.propio})}><span>Riesgo</span><b class="num">${pr.riesgo?pr.riesgo+' / 7':'—'}</b></div>
+        <div class="tile"${xi('p_gest',{g:pr.gestion})}><span>Gestión</span><b>${esc(pr.gestion)}</b></div>
+        <div class="tile"${xi('p_liq',{l:pr.liquidez})}><span>Liquidez</span><b>${esc((pr.liquidez||'—').split(' ')[0])}</b></div></div>
+        ${pr.reg?`<div class="sublab">Regiones</div>${rows(pr.reg,'reg')}`:''}${pr.sec?`<div class="sublab">Sectores</div>${rows(pr.sec,'sec')}`:''}${pr.div?`<div class="sublab">Monedas</div>${rows(pr.div,'div')}`:''}
+        ${!pr.reg&&!pr.sec?'<p class="hint">Sin desglose de regiones ni sectores. Puedes añadirlo en "Editar".</p>':''}</div>` })()}
     ${p.nota?`<div class="note">${ICON.info}<span>${esc(p.nota)}</span></div>`:''}
     <div class="card"><div class="card-h">Movimientos</div>${movs.map(({m,i})=>`<div class="row"${xi('mov',m)}><span class="row-m"><b class="wrap">${esc(m.mov||'Movimiento')}</b><small>${sdate(m.f)}${m.aprox?' ≈':''} · ${esc(m.cls||'')}${m.fia&&m.fia!=='Dato'?' · '+esc(m.fia):''}</small></span><span class="row-r num ${m.tipo==='salida'?'neg':''}">${m.tipo==='salida'?'−':'+'}${eur(m.imp,2)}</span><button class="del" data-dm="${i}" aria-label="Borrar movimiento">×</button></div>`).join('')||'<div class="empty">Sin movimientos.</div>'}</div>
     <div class="card"><div class="card-h">Valoraciones</div>${vals.map(({v,i})=>`<div class="row"${xi('val',v)}><span class="row-m"><b>${fdate(v.f)}</b><small>${esc(v.fu||'')}${v.fia&&v.fia!=='Dato'?' · '+esc(v.fia):''}</small></span><span class="row-r num">${eur(v.v,2)}</span><button class="del" data-dv="${i}" aria-label="Borrar valoración">×</button></div>`).join('')||'<div class="empty">Sin valoraciones.</div>'}</div>
@@ -584,6 +593,13 @@ function openProduct(id){
       <label class="fl">Estado<select name="estado"><option value="activo" ${!closed?'selected':''}>Activo</option><option value="cerrado" ${closed?'selected':''}>Cerrado</option></select></label>
       <label class="fl">Aportación periódica (€)<input type="number" inputmode="decimal" step="0.01" name="pimp" value="${p.periodica?.importe??''}"></label>
       <label class="fl">Frecuencia<select name="pfreq">${['mensual','semanal','diaria'].map(x=>`<option ${p.periodica?.frecuencia===x?'selected':''}>${x}</option>`).join('')}</select></label>
+      <label class="fl">Riesgo (1 a 7, del folleto)<select name="riesgo"><option value="">Sin dato</option>${[1,2,3,4,5,6,7].map(n=>`<option ${+p.riesgo===n?'selected':''}>${n}</option>`).join('')}</select></label>
+      <label class="fl">Clase<select name="clase"><option value="">Automática</option>${['Renta variable','Liquidez','Cripto','Metales'].map(x=>`<option ${p.clase===x?'selected':''}>${x}</option>`).join('')}</select></label>
+      <label class="fl">Gestión<select name="gestion"><option value="">Sin dato</option>${['Activa','Indexada','Sin gestión'].map(x=>`<option ${p.gestion===x?'selected':''}>${x}</option>`).join('')}</select></label>
+      <label class="fl">Liquidez<select name="liquidez"><option value="">Automática</option>${['Inmediata','Unos días','Bloqueado o con penalización'].map(x=>`<option ${p.liquidez===x?'selected':''}>${x}</option>`).join('')}</select></label>
+      <label class="fl">Regiones (ej.: EE. UU.:60;Europa:25;Emergentes:15)<input name="regiones" value="${esc(p.regiones||'')}"></label>
+      <label class="fl">Sectores (ej.: Tecnología:40;Salud:20)<input name="sectores" value="${esc(p.sectores||'')}"></label>
+      <label class="fl">Monedas (ej.: USD:70;EUR:30)<input name="divisas" value="${esc(p.divisas||'')}"></label>
       <button class="btn wide">Guardar cambios</button></form>
       <button class="btn wide danger" id="delp">Borrar este producto</button>
     </details>
@@ -593,7 +609,8 @@ function openProduct(id){
     pchart=new Chart($('#pchart'),{type:'line',data:{labels:vs.map(v=>v.f),datasets:[{data:vs.map(v=>v.v),borderColor:css('--inv'),backgroundColor:css('--inv')+'33',fill:'origin',pointRadius:0,tension:.3,borderWidth:2}]},
       options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{title:i=>fdate(i[0].label),label:c=>eur(c.parsed.y,2)}}},scales:{x:{display:false},y:{display:false}}}}) }
   $('#fedit',dlg).onsubmit=async e=>{e.preventDefault(); const f=new FormData(e.target); p.costePct=f.get('coste')===''?null:+f.get('coste'); const est=f.get('estado'); if(est==='cerrado'&&p.estado!=='cerrado'){p.cierre=today()} p.estado=est;
-    p.periodica = f.get('pimp')? {importe:+f.get('pimp'),frecuencia:f.get('pfreq'),hasta:p.periodica?.hasta||today()} : null; await persist('p',p); render(); openProduct(id); toast('Cambios guardados')};
+    p.periodica = f.get('pimp')? {importe:+f.get('pimp'),frecuencia:f.get('pfreq'),hasta:p.periodica?.hasta||today()} : null;
+    p.riesgo=f.get('riesgo')?+f.get('riesgo'):null; ['clase','gestion','liquidez','regiones','sectores','divisas'].forEach(k=>p[k]=String(f.get(k)||'').trim()); await persist('p',p); render(); openProduct(id); toast('Cambios guardados')};
   dlg.querySelectorAll('[data-dm]').forEach(b=>b.onclick=async ev=>{ ev.stopPropagation(); if(!confirm('¿Borrar este movimiento?'))return; p.movs.splice(+b.dataset.dm,1); await persist('p',p); render(); openProduct(id) });
   dlg.querySelectorAll('[data-dv]').forEach(b=>b.onclick=async ev=>{ ev.stopPropagation(); if(!confirm('¿Borrar esta valoración?'))return; p.vals.splice(+b.dataset.dv,1); await persist('p',p); render(); openProduct(id) });
   $('#delp',dlg).onclick=async()=>{ if(!confirm(`¿Borrar ${p.nombre} y todo su historial?`))return; delete S.prod[id]; await remove('p',id); dlg.close(); render(); toast('Producto borrado') };
@@ -631,6 +648,7 @@ function renderMas(){
     <div class="btns"><button class="btn" id="reload">Recargar</button><button class="btn ghost" id="exp">Descargar copia</button></div>
   </div>
   <div class="card"><div class="card-h">Importar un Excel</div><p class="hint">Sustituye todo por el contenido del archivo y lo guarda en OneDrive.</p><label class="btn ghost wide" style="cursor:pointer">Elegir archivo<input type="file" id="imp" accept=".xlsx" hidden></label><p class="hint" id="impmsg"></p></div>
+  <div class="card"><div class="card-h">Importar clasificación</div><p class="hint">Añade riesgo, regiones, sectores, monedas y costes a tus productos desde un Excel, sin tocar movimientos ni valores.</p><label class="btn ghost wide" style="cursor:pointer">Elegir archivo<input type="file" id="impc" accept=".xlsx" hidden></label><p class="hint" id="impcmsg"></p></div>
   <details class="card edit"><summary>Ajustes</summary><form id="fcfg"><label class="fl">Inflación de referencia (%)<input type="number" inputmode="decimal" step="0.1" name="ipc" value="${S.cfg.ipc}"></label><label class="fl">Avisos (uno por línea)<textarea name="avisos" rows="5">${esc((S.cfg.avisos||[]).join('\n'))}</textarea></label><button class="btn wide">Guardar ajustes</button></form></details>
   <button class="btn wide danger" id="out">Cerrar sesión</button>`;
   el.querySelectorAll('[data-deld]').forEach(b=>b.onclick=async()=>{ if(!confirm('¿Borrar este préstamo?'))return; delete S.debts[b.dataset.deld]; await remove('d',b.dataset.deld); render(); toast('Préstamo borrado') });
@@ -638,12 +656,187 @@ function renderMas(){
   $('#reload').onclick=()=>{ if(dirty&&!confirm('Hay cambios sin guardar. ¿Recargar igualmente?'))return; pull().catch(()=>toast('No se ha podido leer OneDrive')) };
   $('#exp').onclick=()=>{ const u=URL.createObjectURL(new Blob([workbookFromState()])); const a=document.createElement('a'); a.href=u; a.download=`patrimonio_${today()}.xlsx`; a.click(); setTimeout(()=>URL.revokeObjectURL(u),5000) };
   $('#out').onclick=logout;
+  $('#impc').onchange=async ev=>{ const file=ev.target.files[0]; if(!file) return; const msg=$('#impcmsg');
+    try{ const wb=XLSX.read(await file.arrayBuffer(),{type:'array'}); const ws=wb.Sheets['Clasificación']||wb.Sheets['Clasificacion']||wb.Sheets['Productos']; const R=XLSX.utils.sheet_to_json(ws,{defval:''});
+      let n=0; for (const r of R){ const p=S.prod[String(r.id)]; if(!p) continue; n++;
+        if (r.riesgo!=='') p.riesgo=+r.riesgo; ['clase','gestion','liquidez','regiones','sectores','divisas'].forEach(k=>{ if(r[k]!=='') p[k]=String(r[k]) });
+        if (r.coste_pct!==''&&r.coste_pct!=null) p.costePct=+String(r.coste_pct).replace(',','.') }
+      if(!n){ msg.textContent='El archivo no contiene productos que coincidan con los tuyos.'; return }
+      render(); await push(); toast(`Clasificación añadida a ${n} productos`); msg.textContent=`Actualizados ${n} productos.`;
+    }catch(e){ msg.textContent='No se ha podido leer el archivo.' } ev.target.value='' };
   $('#imp').onchange=async ev=>{ const file=ev.target.files[0]; if(!file) return; const msg=$('#impmsg');
     try{ const st=stateFromWorkbook(await file.arrayBuffer());
       if(!confirm(`Se sustituirán tus datos por ${Object.keys(st.prod).length} productos. ¿Continuar?`)) return;
       S.prod=st.prod; S.debts=st.debts; S.cfg=st.cfg; render(); await push(true); toast('Datos importados y guardados en OneDrive');
     }catch(e){ msg.textContent='No se ha podido leer el archivo. Usa un Excel exportado desde la app.' } ev.target.value='' };
   $('#fcfg').onsubmit=e=>{e.preventDefault(); const f=new FormData(e.target); S.cfg.ipc=+f.get('ipc'); S.cfg.avisos=String(f.get('avisos')).split('\n').map(s=>s.trim()).filter(Boolean); schedule(); render(); toast('Ajustes guardados')};
+}
+
+
+/* ================== PERFIL DE CADA PRODUCTO (riesgo, regiones, sectores…) ================== */
+// Los datos concretos de cada producto viven en tu Excel (columnas riesgo, clase, gestion, liquidez, regiones, sectores, divisas).
+// Aquí solo hay valores genéricos por tipo de producto para cuando falta el dato.
+function parseMix(s){ if(!s) return null; if(typeof s==='object') return s; const o={}; String(s).split(/[;|]/).forEach(x=>{ const [k,v]=x.split(':'); if(k&&v!==undefined&&!isNaN(+String(v).replace(',','.'))) o[k.trim()]=+String(v).replace(',','.') }); return Object.keys(o).length?o:null }
+function mixStr(o){ return o?Object.entries(o).map(([k,v])=>`${k}:${v}`).join(';'):'' }
+function defProfile(p){
+  const t=p.tipo;
+  if (['Cuenta remunerada','Depósito','Cuenta corriente'].includes(t)) return {riesgo:1,clase:'Liquidez',gestion:'Sin gestión',liquidez:t==='Depósito'?'Bloqueado o con penalización':'Inmediata',reg:{'España':100},sec:{'Liquidez':100},div:{'EUR':100}};
+  if (t==='Monetario') return {riesgo:1,clase:'Liquidez',gestion:'Activa',liquidez:'Inmediata',reg:{'Europa':100},sec:{'Liquidez':100},div:{'EUR':100}};
+  if (t==='Cripto') return {riesgo:7,clase:'Cripto',gestion:'Sin gestión',liquidez:'Inmediata',reg:{'Global':100},sec:{'Cripto':100},div:{'USD':100}};
+  if (t==='Metal') return {riesgo:5,clase:'Metales',gestion:'Sin gestión',liquidez:'Inmediata',reg:{'Global':100},sec:{'Metales preciosos':100},div:{'USD':100}};
+  if (t==='Seguro') return {riesgo:null,clase:'Renta variable',gestion:'Activa',liquidez:'Bloqueado o con penalización',reg:null,sec:null,div:null};
+  if (t==='Fondo') return {riesgo:null,clase:'Renta variable',gestion:null,liquidez:'Unos días',reg:null,sec:null,div:null};
+  return {riesgo:null,clase:'Renta variable',gestion:null,liquidez:'Unos días',reg:null,sec:null,div:null};
+}
+function profile(p){ const d=defProfile(p); return {
+  riesgo: p.riesgo!=null&&p.riesgo!==''?+p.riesgo:d.riesgo, clase:p.clase||d.clase, gestion:p.gestion||d.gestion||'Sin datos', liquidez:p.liquidez||d.liquidez,
+  reg:parseMix(p.regiones)||d.reg, sec:parseMix(p.sectores)||d.sec, div:parseMix(p.divisas)||d.div,
+  propio: !!(p.riesgo||p.regiones||p.sectores) } }
+function activeProds(){ return Object.values(S.prod).filter(p=>p.estado!=='cerrado'&&value(p)>0) }
+function exposure(dim){ // dim: reg | sec | div | riesgo | clase | gestion | liquidez | entidad | tipo
+  const out={}, who={}; let tot=0;
+  for (const p of activeProds()){ const v=value(p); tot+=v; const pr=profile(p);
+    let mix; if (['reg','sec','div'].includes(dim)) mix=pr[dim]||{'Sin clasificar':100};
+    else if (dim==='riesgo') mix={[pr.riesgo?String(pr.riesgo):'Sin dato']:100};
+    else if (dim==='entidad') mix={[p.entidad]:100}; else if (dim==='tipo') mix={[p.tipo]:100}; else mix={[pr[dim]||'Sin dato']:100};
+    const sum=Object.values(mix).reduce((a,b)=>a+b,0)||100;
+    for (const [k,w] of Object.entries(mix)){ const x=v*w/sum; out[k]=(out[k]||0)+x; (who[k]=who[k]||[]).push([p.nombre,x]) } }
+  return Object.entries(out).map(([k,v])=>({k,v,share:tot?v/tot:0,who:(who[k]||[]).sort((a,b)=>b[1]-a[1])})).sort((a,b)=>b.v-a.v);
+}
+function kpis(){
+  const t=totals(); const act=activeProds(); const inv=act.reduce((s,p)=>s+value(p),0)||1;
+  let coste=0, costeBase=0, sinCoste=[]; const costes=[];
+  let rS=0,rW=0, liq=0, fx=0, rv=0, act_g=0, idx_g=0;
+  for (const p of act){ const v=value(p), pr=profile(p);
+    if (p.costePct!=null){ coste+=v*p.costePct/100; costeBase+=v; costes.push([p.nombre,v*p.costePct/100,p.costePct]) } else if (p.categoria==='Inversión') sinCoste.push(p.nombre);
+    if (pr.riesgo){ rS+=pr.riesgo*v; rW+=v }
+    if (pr.liquidez==='Inmediata'||pr.liquidez==='Unos días') liq+=v;
+    if (pr.div){ const s=Object.values(pr.div).reduce((a,b)=>a+b,0)||100; fx+=v*(s-(pr.div.EUR||0))/s }
+    if (pr.clase==='Renta variable') rv+=v;
+    if (pr.gestion==='Activa') act_g+=v; if (pr.gestion==='Indexada') idx_g+=v; }
+  const ents=exposure('entidad'); const prods=act.map(p=>[p.nombre,value(p)]).sort((a,b)=>b[1]-a[1]);
+  let ext=0, extE=0; for (const p of Object.values(S.prod)) for (const m of p.movs||[]) if (m.ext>0){ ext+=m.ext; if (m.fia==='Estimado'||m.fia==='Dudoso') extE+=m.ext }
+  const infl=[3.1,8.4,3.5,2.8,2.7,S.cfg.ipc]; const yrs=t.x!=null?infl:[]; const iAvg=Math.pow(infl.reduce((a,b)=>a*(1+b/100),1),1/infl.length)-1;
+  return {t,inv,coste,costeBase,costes:costes.sort((a,b)=>b[1]-a[1]),sinCoste,riesgo:rW?rS/rW:null,riesgoCob:rW/inv,liq,fx,rv,act_g,idx_g,ents,prods,est:ext?extE/ext:0,n:act.length,nEnt:ents.length,iAvg,real:t.x!=null?(1+t.x)/(1+iAvg)-1:null,dr:t.activos?t.deuda/t.activos:0};
+}
+const RLAB=r=>r==null?'sin dato':r<=2?'muy prudente':r<=3.5?'prudente':r<=4.5?'equilibrado':r<=5.5?'dinámico':'agresivo';
+const DIMTXT={
+  reg:['Región','En qué parte del mundo están las empresas en las que invierte tu dinero. Repartirlo entre varias zonas reduce el golpe si a un país le va mal.'],
+  sec:['Sector','A qué se dedican las empresas en las que invierte tu dinero. Si todo está en un mismo sector, una mala racha de ese sector te afecta de lleno.'],
+  div:['Moneda','En qué moneda están los activos. Si inviertes en empresas de EE. UU., tu dinero sube o baja también según lo que haga el dólar frente al euro.'],
+  riesgo:['Nivel de riesgo','Los productos se puntúan del 1 al 7 según cuánto puede subir o bajar su valor. 1 es casi como una cuenta; 7, como la cripto, puede moverse un 50 % en meses.'],
+  clase:['Clase de activo','El tipo de cosa en la que está el dinero: bolsa (acciones), liquidez (cuentas y monetarios), cripto o metales. Es lo que más determina cuánto puede subir o caer tu patrimonio.'],
+  gestion:['Tipo de gestión','Activa: un gestor elige qué comprar para intentar ganar al mercado; suele costar 1,5–2 % al año. Indexada: copia un índice entero y cuesta 0,1–0,4 %. A largo plazo, la mayoría de fondos activos no consigue batir a los indexados.'],
+  liquidez:['Liquidez','Lo rápido que podrías tener ese dinero en tu cuenta. "Inmediata": en el día. "Unos días": fondos, que tardan 2–5 días. "Bloqueado o con penalización": sacarlo antes de tiempo te cuesta dinero.'],
+  entidad:['Banco','Cuánto de tu dinero está en cada banco o bróker.'],
+  tipo:['Tipo de producto','Qué clase de producto es cada inversión: fondo, ETF, acción, cripto, cuenta…']};
+const NAMETXT={
+  'EE. UU.':'Empresas estadounidenses. Son más de la mitad del valor de todas las bolsas del mundo.','Europa':'Empresas europeas (Reino Unido, Francia, Alemania, Suiza…).','Emergentes':'Países en desarrollo como China, India, Taiwán, Corea o Brasil. Pueden crecer más, pero son más inestables.','Japón y Asia desarrollada':'Japón, Australia, Hong Kong, Singapur…','España':'Cuentas y depósitos en bancos españoles o en euros.','Global':'Activos que no dependen de un país concreto.','Sin clasificar':'Productos de los que no tenemos el desglose.',
+  'Tecnología':'Empresas como Apple, Microsoft o Nvidia: programas, chips y aparatos.','Salud':'Farmacéuticas, hospitales y equipos médicos.','Industria':'Fábricas, maquinaria, transporte, construcción y defensa.','Financiero':'Bancos, aseguradoras y gestoras.','Consumo':'Lo que compra la gente: comida, ropa, coches, tiendas, ocio.','Comunicaciones':'Telefónicas, redes sociales, buscadores y medios (Google, Meta, Netflix…).','Energía':'Petróleo, gas y renovables.','Materiales':'Minería, química, acero.','Inmobiliario':'Empresas dueñas de edificios y centros comerciales.','Servicios públicos':'Luz, agua y gas.','Liquidez':'Dinero en cuentas, depósitos y monetarios: no invierte en empresas.','Cripto':'Monedas digitales como bitcoin. Muy volátiles.','Metales preciosos':'Oro y plata.',
+  'EUR':'Euros: tu moneda. Sin riesgo de cambio.','USD':'Dólares: si el dólar baja frente al euro, esta parte pierde valor.','GBP':'Libras esterlinas.','Otras':'Otras monedas (won coreano, yuan, yen…).',
+  'Renta variable':'Acciones de empresas, directamente o mediante fondos y ETF. Lo que más puede subir a largo plazo, y lo que más cae en una crisis.','Metales':'Oro y plata.','Activa':'Un gestor elige las inversiones.','Indexada':'Copia un índice entero de forma automática.','Sin gestión':'Cuentas, cripto o metales: nadie los gestiona.',
+  'Inmediata':'Disponible en el día.','Unos días':'Tarda 2–5 días en llegar a tu cuenta.','Bloqueado o con penalización':'Sacarlo antes de tiempo te cuesta dinero o no se puede.',
+  '1':'Casi sin riesgo: cuentas y monetarios.','2':'Riesgo muy bajo: renta fija a corto plazo.','3':'Riesgo bajo.','4':'Riesgo medio: fondos mixtos.','5':'Riesgo medio-alto: bolsa global diversificada.','6':'Riesgo alto: bolsa de un país o sector concreto.','7':'Riesgo muy alto: cripto o acciones sueltas muy volátiles.'};
+function explain2(key,c){
+  const T=(t,v,what,you,tip)=>({t,v,what,you,tip});
+  const whoTxt=w=>w&&w.length?'Viene de: '+w.slice(0,5).map(([n,x])=>`${esc(n)} (${eur(x)})`).join(', ')+(w.length>5?` y ${w.length-5} más`:'')+'.':'';
+  switch(key){
+    case 'dim': { const [dn,dt]=DIMTXT[c.dim]||['','']; return T(`${dn}: ${c.k}`,eur(c.v),(NAMETXT[c.k]?NAMETXT[c.k]+' ':'')+dt,`<b>${eur(c.v)}</b>, el ${pctTxt(c.share)} de lo que tienes. ${whoTxt(c.who)}`,c.dim==='reg'||c.dim==='sec'?'El reparto de los fondos es aproximado: está tomado de sus fichas y cambia con el tiempo.':'') }
+    case 'k_coste': return T('Coste anual total',eur(c.coste),'Lo que te cobran entre todos tus productos cada año por gestionarlos. No lo ves como un cargo: se descuenta poco a poco del valor.',`Unos <b>${eur(c.coste)} al año</b>, un ${pctTxt(c.costeBase?c.coste/c.costeBase:0)} de lo que tiene coste conocido. Los más caros: ${c.costes.slice(0,3).map(([n,x,p])=>`${esc(n)} (${eur(x)}, ${String(p).replace('.',',')} %)`).join(', ')}.`,c.sinCoste.length?`Sin dato de coste: ${esc(c.sinCoste.join(', '))}. Puedes añadirlo en la ficha de cada producto.`:'');
+    case 'k_riesgo': return T('Riesgo medio',c.riesgo==null?'—':c.riesgo.toFixed(1).replace('.',',')+' / 7','Los productos se puntúan del 1 (casi sin riesgo, como una cuenta) al 7 (puede subir o bajar muchísimo, como la cripto). Esta es la media de los tuyos, pesando más los que tienen más dinero.',c.riesgo==null?'No hay datos de riesgo.':`Tu media es <b>${c.riesgo.toFixed(1).replace('.',',')} sobre 7</b>: perfil <b>${RLAB(c.riesgo)}</b>. Calculado sobre el ${pctTxt(c.riesgoCob)} de tu dinero (el resto no tiene dato).`,'La escala es el indicador de riesgo oficial de los folletos de los fondos.');
+    case 'k_rv': return T('Dinero en bolsa',pctTxt(c.rv/c.inv),'Qué parte de tu dinero está en acciones de empresas (directamente o a través de fondos y ETF). Es lo que más sube a largo plazo y lo que más cae en una crisis: en 2008 y en 2020 la bolsa llegó a caer entre un 30 % y un 50 %.',`<b>${eur(c.rv)}</b>. Si la bolsa cayera un 30 %, esta parte perdería temporalmente unos <b>${eur(c.rv*0.3)}</b>.`,'Las caídas de la bolsa suelen recuperarse con los años; el problema es tener que vender en mitad de una caída.');
+    case 'k_liq': return T('Disponible en pocos días',pctTxt(c.liq/c.inv),'Dinero que podrías tener en tu cuenta en unos días sin penalizaciones: cuentas, monetarios, fondos, ETF, acciones y cripto.',`<b>${eur(c.liq)}</b> de ${eur(c.inv)}.`,'Que puedas sacarlo no significa que sea buen momento: vender bolsa en una caída convierte una pérdida temporal en real.');
+    case 'k_ent': return T('Banco con más dinero',pctTxt(c.ents[0]?.share),'Qué parte de tu patrimonio está en un solo banco o bróker. Tus fondos y acciones son tuyos aunque el banco quiebre; el efectivo está protegido hasta 100.000 € por banco.',c.ents[0]?`<b>${esc(c.ents[0].k)}</b>: ${eur(c.ents[0].v)}, el ${pctTxt(c.ents[0].share)}.`:'','');
+    case 'k_prod': return T('Producto más grande',pctTxt(c.prods[0]?c.prods[0][1]/c.inv:0),'Qué parte de tu dinero está en un solo producto. Cuanto más grande, más depende tu resultado de que a ese producto le vaya bien.',c.prods[0]?`<b>${esc(c.prods[0][0])}</b>: ${eur(c.prods[0][1])}.`:'',c.prods[0]&&c.prods[0][1]/c.inv>0.25?'Más de un 25 % en un solo producto se considera una concentración alta.':'');
+    case 'k_n': return T('Productos activos',String(c.n),'Cuántos productos distintos tienes abiertos. Más productos no siempre es más diversificación: varios fondos pueden tener dentro las mismas empresas.',`<b>${c.n} productos</b> en ${c.nEnt} bancos o brókeres.`,'Muchos productos pequeños hacen más difícil seguirlos y suelen repetir empresas.');
+    case 'k_est': return T('Datos estimados',pctTxt(c.est),'Qué parte del dinero que has aportado está reconstruida sin un documento que la confirme. Cuanto más baja, más fiables son las rentabilidades.',`El <b>${pctTxt(c.est)}</b> de lo aportado es estimado.`,'Bajará a medida que subas extractos y certificados.');
+    case 'k_fx': return T('En otras monedas',pctTxt(c.fx/c.inv),'Qué parte de tu dinero está en activos de otra moneda (dólar, libra, won…). Si el dólar baja frente al euro, esa parte pierde valor aunque las empresas no cambien.',`<b>${eur(c.fx)}</b>.`,'Algunos fondos "cubren" la divisa para evitar este efecto; aquí se cuentan como tales cuando lo sabemos.');
+    case 'k_gest': return T('Gestión activa',pctTxt(c.act_g/c.inv),DIMTXT.gestion[1],`Activa: <b>${eur(c.act_g)}</b> (${pctTxt(c.act_g/c.inv)}). Indexada: <b>${eur(c.idx_g)}</b> (${pctTxt(c.idx_g/c.inv)}).`,'');
+    case 'k_dr': return T('Deuda sobre patrimonio',pctTxt(c.dr),'Cuánto debes comparado con todo lo que tienes. Por debajo de un 30 % se considera cómodo.',`Debes ${eur(c.t.deuda)} y tienes ${eur(c.t.activos)}: <b>${pctTxt(c.dr)}</b>.`,'');
+    case 'k_real': return T('Rentabilidad real',pct(c.real),'Tu rentabilidad anual menos lo que han subido los precios. Es lo que de verdad ha crecido tu poder de compra.',`Has ganado un ${pctTxt(c.t.x)} al año y los precios han subido de media un ${pctTxt(c.iAvg)} al año desde 2021: <b>${pct(c.real)}</b> de ganancia real al año.`,c.real<0?'Tu dinero ha crecido menos que los precios: has perdido poder de compra, sobre todo por el efectivo y los productos con costes altos.':'');
+    case 'bank_p': return T(c.n,eur(c.v,2),'Un producto de este banco. "Invertido" es lo que has metido menos lo que has sacado; la rentabilidad compara lo que vale ahora con eso.',`Invertido: ${eur(c.neto,2)} · Vale: ${eur(c.v,2)} · Ganancia: <b>${signed(c.gan,2)} (${pct(c.pct)})</b>.`,'Toca el nombre para abrir la ficha completa.');
+    case 'p_riesgo': return T('Nivel de riesgo',c.r?c.r+' / 7':'—',DIMTXT.riesgo[1],c.r?`Este producto tiene un <b>${c.r}</b>: ${NAMETXT[String(c.r)]||''}`:'No tenemos el dato. Lo encontrarás en el folleto del producto (el "indicador de riesgo", del 1 al 7).',c.propio?'':'Valor genérico según el tipo de producto.');
+    case 'p_gest': return T('Gestión',c.g,DIMTXT.gestion[1],'','');
+    case 'p_liq': return T('Liquidez',c.l,DIMTXT.liquidez[1],NAMETXT[c.l]||'','');
+  }
+  return null;
+}
+function hbars(dim,rows,col){ const max=Math.max(...rows.map(r=>r.share),0.0001);
+  return rows.map(r=>`<div class="hbar"${xi('dim',{dim,k:r.k,v:r.v,share:r.share,who:r.who})}><span class="hb-l">${esc(r.k)}</span><span class="hb-t"><i style="width:${r.share/max*100}%;background:${col||'var(--accent)'}"></i></span><span class="hb-v num">${pctTxt(r.share)}</span></div>`).join('') }
+const PAL=['#0666EB','#8B5CF6','#E8467C','#00A36C','#F5A524','#0BA5C9','#5B6B80','#C2410C','#1E3A8A','#B45309','#2BB3A0','#A3ABB8'];
+const DOUGH={};
+function donut(id,dim,rows){
+  const reg=rows.map(r=>xi('dim',{dim,k:r.k,v:r.v,share:r.share,who:r.who}));
+  DOUGH[id]={rows,reg};
+  return `<div class="donut"><div class="dn-c"><canvas id="${id}" aria-label="Gráfico circular"></canvas></div><div class="dn-l">${rows.map((r,i)=>`<div class="dn-r"${reg[i]}><i style="background:${PAL[i%PAL.length]}"></i><span>${esc(r.k)}</span><b class="num">${pctTxt(r.share)}</b></div>`).join('')}</div></div>` }
+const CHARTS={};
+function drawDonuts(scope){
+  if (!window.Chart) return;
+  scope.querySelectorAll('.dn-c canvas').forEach(cv=>{ const d=DOUGH[cv.id]; if(!d||cv.offsetParent===null) return;
+    if (CHARTS[cv.id]) CHARTS[cv.id].destroy();
+    CHARTS[cv.id]=new Chart(cv,{type:'doughnut',data:{labels:d.rows.map(r=>r.k),datasets:[{data:d.rows.map(r=>r.v),backgroundColor:d.rows.map((r,i)=>PAL[i%PAL.length]),borderColor:css('--surface'),borderWidth:2}]},
+      options:{cutout:'64%',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`${c.label}: ${eur(c.parsed)}`}}},
+        onClick:(e,els)=>{ if(els[0]){ const m=d.reg[els[0].index].match(/data-xi="(\d+)"/); if(m) openExplain(m[1]) } }}}) });
+}
+let pieMode='entidad';
+function inicioCharts(){
+  const modes=[['entidad','Bancos'],['tipo','Tipo de activo'],['clase','Clase'],['riesgo','Riesgo']];
+  return `<div class="card"><div class="card-h">Reparto de tu dinero</div><div class="chips in">${modes.map(([k,l])=>`<button class="chip" data-pie="${k}" aria-pressed="${pieMode===k}">${l}</button>`).join('')}</div>${donut('pie_inicio',pieMode,exposure(pieMode))}</div>`;
+}
+function bankAccordion(t){
+  const tot=t.activos||1; const ents=Object.entries(t.ent).sort((a,b)=>b[1]-a[1]);
+  return `<div class="card"><div class="card-h">Por banco <small>toca un banco para ver sus productos</small></div>${ents.map(([e,v])=>{
+    const ps=Object.values(S.prod).filter(p=>p.entidad===e&&p.estado!=='cerrado'&&value(p)>0).map(p=>({p,s:stats(p)})).sort((a,b)=>b.s.v-a.s.v);
+    const neto=ps.reduce((a,x)=>a+(x.p.categoria==='Efectivo'?x.s.v:x.s.neto),0); const g=v-neto;
+    const open=OPENB.has(e);
+    return `<div class="acc${open?' open':''}"><div class="row tap" data-acc="${esc(e)}">${avatar(e)}<span class="row-m"><b>${esc(e)}</b><small>${ps.length} producto${ps.length===1?'':'s'} · <span class="${g>=0?'pos':'neg'}"${xi('gan_total',{gan:g,tv:v,ext:neto})}>${signed(g)}</span></small></span><span class="row-r num"${xi('entidad',{e,v,share:v/tot,n:ps.length,names:ps.map(x=>x.p.nombre).join(', ')})}>${eur(v)}</span><span class="chev acc-c">${ICON.chev}</span></div>
+      <div class="acc-b">${ps.map(({p,s})=>`<div class="sub"><span class="row-m tapname" data-pid="${esc(p.id)}"><b>${esc(p.nombre)}</b><small>${esc(p.tipo)}</small></span>
+        <span class="sub-c"${xi('p_neto',{neto:s.neto,ent:s.ent,sal:s.sal})}><small>Invertido</small><b class="num">${eur(s.neto)}</b></span>
+        <span class="sub-c"${xi('bank_p',{n:p.nombre,v:s.v,neto:s.neto,gan:s.gan,pct:s.pct})}><small>Rentab.</small><b class="num ${p.categoria==='Efectivo'?'':(s.gan||0)>=0?'pos':'neg'}">${p.categoria==='Efectivo'?'—':pct(s.pct)}</b></span></div>`).join('')}</div></div>` }).join('')}</div>`;
+}
+const OPENB=new Set();
+document.addEventListener('click',e=>{
+  if (e.target.closest('[data-xi]')||e.target.closest('[data-pid]')) return;
+  const a=e.target.closest('[data-acc]'); if (a){ const k=a.dataset.acc; OPENB.has(k)?OPENB.delete(k):OPENB.add(k); a.parentElement.classList.toggle('open'); return }
+  const pb=e.target.closest('[data-pie]'); if (pb){ pieMode=pb.dataset.pie; renderInicio(); return }
+});
+
+function renderAnalisis(){
+  const el=$('#analisis'); if (!Object.keys(S.prod).length){ el.innerHTML=noData(); return }
+  const k=kpis(); const tile=(key,lab,val,cls='')=>`<div class="tile"${xi(key,k)}><span>${lab}</span><b class="num ${cls}">${val}</b></div>`;
+  const prodR=activeProds().filter(p=>p.categoria==='Inversión').map(p=>({p,s:stats(p)})).filter(x=>x.s.pct!=null).sort((a,b)=>b.s.pct-a.s.pct);
+  const maxR=Math.max(...prodR.map(x=>Math.abs(x.s.pct)),0.0001);
+  const maxC=Math.max(...k.costes.map(x=>x[1]),1);
+  el.innerHTML=`<p class="tapnote">${ICON.info} Toca cualquier indicador para ver qué significa</p>
+  <div class="card"><div class="card-h">Indicadores clave</div><div class="tiles">
+    ${tile('xirr_total','Rentabilidad anual',pct(k.t.x))}
+    ${tile('k_real','Rentabilidad real',pct(k.real),k.real<0?'neg':'pos')}
+    <div class="tile"${xi('gan_total',{gan:k.t.gan,tv:k.t.tv,ext:k.t.ext})}><span>Ganancia total</span><b class="num ${k.t.gan>=0?'pos':'neg'}">${signed(k.t.gan)}</b></div>
+    ${tile('k_coste','Coste al año',eur(k.coste))}
+    ${tile('k_riesgo','Riesgo medio',k.riesgo==null?'—':k.riesgo.toFixed(1).replace('.',',')+' / 7')}
+    ${tile('k_rv','En bolsa',pctTxt(k.rv/k.inv))}
+    ${tile('k_liq','Disponible pronto',pctTxt(k.liq/k.inv))}
+    ${tile('k_fx','En otras monedas',pctTxt(k.fx/k.inv))}
+    ${tile('k_gest','Gestión activa',pctTxt(k.act_g/k.inv))}
+    ${tile('k_ent','Mayor banco',pctTxt(k.ents[0]?.share))}
+    ${tile('k_prod','Mayor producto',pctTxt(k.prods[0]?k.prods[0][1]/k.inv:0),k.prods[0]&&k.prods[0][1]/k.inv>0.25?'neg':'')}
+    ${tile('k_dr','Deuda / patrimonio',pctTxt(k.dr))}
+    ${tile('k_n','Productos activos',String(k.n))}
+    ${tile('k_est','Datos estimados',pctTxt(k.est))}
+  </div></div>
+  <div class="card"><div class="card-h">Exposición al riesgo</div>
+    <div class="riskscale">${[1,2,3,4,5,6,7].map(n=>{const r=exposure('riesgo').find(x=>x.k===String(n));return `<div class="rs${r?' on':''}"${xi('dim',{dim:'riesgo',k:String(n),v:r?.v||0,share:r?.share||0,who:r?.who||[]})}><i style="height:${Math.max(6,(r?.share||0)*100)}%"></i><span>${n}</span></div>`}).join('')}</div>
+    <p class="hint">1 = casi sin riesgo · 7 = riesgo muy alto. Altura = parte de tu dinero.</p>
+    ${hbars('clase',exposure('clase'),'var(--ei)')}</div>
+  <div class="card"><div class="card-h">Sectores</div>${hbars('sec',exposure('sec'))}</div>
+  <div class="card"><div class="card-h">Regiones</div>${donut('pie_reg','reg',exposure('reg'))}</div>
+  <div class="card"><div class="card-h">Monedas</div>${hbars('div',exposure('div'),'#0BA5C9')}</div>
+  <div class="card"><div class="card-h">Tipo de gestión</div>${hbars('gestion',exposure('gestion'),'#F5A524')}</div>
+  <div class="card"><div class="card-h">Liquidez</div>${hbars('liquidez',exposure('liquidez'),'#00A36C')}</div>
+  <div class="card"><div class="card-h">Rentabilidad de cada inversión <small>desde que la abriste</small></div>${prodR.map(({p,s})=>`<div class="hbar"${xi('bank_p',{n:p.nombre,v:s.v,neto:s.neto,gan:s.gan,pct:s.pct})}><span class="hb-l">${esc(p.nombre)}</span><span class="hb-t ctr"><i style="width:${Math.abs(s.pct)/maxR*50}%;${s.pct>=0?'left:50%':'right:50%'};background:${s.pct>=0?'var(--pos)':'var(--neg)'}"></i></span><span class="hb-v num ${s.pct>=0?'pos':'neg'}">${pct(s.pct)}</span></div>`).join('')}</div>
+  <div class="card"><div class="card-h">Lo que te cuesta cada producto al año</div>${k.costes.map(([n,x,pc])=>`<div class="hbar"${xi('k_coste',k)}><span class="hb-l">${esc(n)}</span><span class="hb-t"><i style="width:${x/maxC*100}%;background:var(--neg)"></i></span><span class="hb-v num">${eur(x)}</span></div>`).join('')}
+    ${k.sinCoste.length?`<p class="hint">Sin dato de coste: ${esc(k.sinCoste.join(', '))}.</p>`:''}</div>`;
+  if (TAB==='analisis') drawDonuts(el);
 }
 
 /* ---------- arranque ---------- */
