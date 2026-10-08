@@ -45,14 +45,17 @@ function stats(p){
     stale: lv && p.estado!=='cerrado' && v>0 ? days(lv.f,today()) : null};
 }
 function loanAt(d, date){
-  const r=d.tin/1200, n=d.n; const first=D(d.primerPago), at=D(date||today());
-  let k=(at.getFullYear()-first.getFullYear())*12+(at.getMonth()-first.getMonth())+(at.getDate()>=first.getDate()?1:0);
-  k=Math.max(0,Math.min(n,k));
-  const g=Math.pow(1+r,k);
-  let bal = r? d.capital*g - d.cuota*(g-1)/r : d.capital - d.cuota*k;
-  if (k>=n) bal=0; bal=Math.max(0,bal);
-  const end=new Date(first); end.setMonth(end.getMonth()+n-1);
-  return {k, bal, restantes:n-k, intereses: Math.max(0,d.cuota*(n-k)-bal), fin:end.toISOString().slice(0,10), pctAmort: 1-bal/d.capital};
+  const r=(+d.tin||0)/1200, n=+d.n||0, at=date||today(); const first=D(d.primerPago);
+  let bal=+d.capital||0, cuota=+d.cuota||0, balAt=bal, cuotaAt=cuota, k=0, fut=0, fin=d.primerPago, rest=0;
+  const ex=(d.extras||[]).slice().sort((a,b)=>a.f<b.f?-1:1); let ei=0;
+  for (let i=0;i<n+600 && bal>0.005;i++){
+    const pd=new Date(first); pd.setMonth(pd.getMonth()+i); const pds=pd.toISOString().slice(0,10);
+    while (ei<ex.length && ex[ei].f<pds){ bal=Math.max(0,bal-ex[ei].imp); if (ex[ei].modo==='cuota'){ const m=Math.max(1,n-i); cuota=r?bal*r/(1-Math.pow(1+r,-m)):bal/m } if (ex[ei].f<=at){ balAt=bal; cuotaAt=cuota } ei++ }
+    if (bal<=0.005) break;
+    const it=bal*r; const pr=i>=n-1?bal:Math.min(bal,cuota-it); bal=Math.max(0,bal-pr); fin=pds;
+    if (pds<=at){ k++; balAt=bal; cuotaAt=cuota } else { fut+=it; rest++ }
+  }
+  return {k, bal:balAt, restantes:rest, intereses:fut, fin, pctAmort: d.capital?1-balAt/d.capital:0, cuota:balAt>0.005?cuotaAt:0};
 }
 function totals(){
   const by={'Inversión':0,'Efectivo invertido':0,'Efectivo':0}, ent={};
@@ -149,16 +152,17 @@ function workbookFromState(){
     (p.movs||[]).forEach(m=>M.push({producto_id:p.id,producto:p.nombre,fecha:m.f,tipo:m.tipo,importe:m.imp,externo:m.ext,clasificacion:m.cls||'',fiabilidad:m.fia||'',fecha_aproximada:m.aprox?'sí':'',precio:m.precio??'',unidades:m.uds??'',movimiento:m.mov||'',nota:m.nota||''}));
     (p.vals||[]).forEach(v=>V.push({producto_id:p.id,producto:p.nombre,fecha:v.f,valor:v.v,fiabilidad:v.fia||'',fuente:v.fu||''}));
   }
-  Object.values(S.debts).forEach(d=>Dd.push({id:d.id,nombre:d.nombre,entidad:d.entidad,capital:d.capital,tin:d.tin,cuota:d.cuota,primer_pago:d.primerPago,n_cuotas:d.n,nota:d.nota||''}));
+  Object.values(S.debts).forEach(d=>Dd.push({id:d.id,nombre:d.nombre,entidad:d.entidad,capital:d.capital,tin:d.tin,cuota:d.cuota,primer_pago:d.primerPago,n_cuotas:d.n,nota:d.nota||'',amortizaciones:(d.extras||[]).length?JSON.stringify(d.extras):''}));
   const wb=XLSX.utils.book_new();
   [['Productos',P],['Movimientos',M],['Valoraciones',V],['Deudas',Dd]].forEach(([n,r])=>XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(r),n));
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet((S.log||[]).length?S.log:[{id:'',ts:'',accion:'',objeto:'',objeto_id:'',nombre:'',detalle:'',fecha_efecto:'',importe:'',antes:'',despues:'',origen:'',usuario:'',dispositivo:''}]),'Bitacora');
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet([{ipc:S.cfg.ipc,avisos:(S.cfg.avisos||[]).join(' | ')}]),'Ajustes');
   return XLSX.write(wb,{type:'array',bookType:'xlsx'});
 }
 function stateFromWorkbook(buf){
   const wb=XLSX.read(buf,{type:'array'});
   const sh=n=>wb.Sheets[n]?XLSX.utils.sheet_to_json(wb.Sheets[n],{defval:''}):[];
-  const P=sh('Productos'), M=sh('Movimientos'), V=sh('Valoraciones'), Dd=sh('Deudas'), A=sh('Ajustes');
+  const P=sh('Productos'), M=sh('Movimientos'), V=sh('Valoraciones'), Dd=sh('Deudas'), A=sh('Ajustes'), LG=sh('Bitacora').filter(r=>r.ts);
   if (!P.length) throw new Error('sin_productos');
   const ds=v=> typeof v==='number' ? new Date(Math.round((v-25569)*864e5)).toISOString().slice(0,10) : String(v).slice(0,10);
   const num=v=> v===''||v==null ? null : +String(v).replace(',','.');
@@ -169,9 +173,9 @@ function stateFromWorkbook(buf){
   M.forEach(r=>{ const p=prod[r.producto_id]; if(!p) return; p.movs.push({f:ds(r.fecha),tipo:r.tipo,imp:num(r.importe)||0,ext:num(r.externo)||0,cls:r.clasificacion,fia:r.fiabilidad,aprox:String(r.fecha_aproximada).startsWith('s')||undefined,precio:num(r.precio),uds:num(r.unidades),mov:r.movimiento,nota:r.nota}) });
   V.forEach(r=>{ const p=prod[r.producto_id]; if(!p) return; p.vals.push({f:ds(r.fecha),v:num(r.valor)||0,fia:r.fiabilidad,fu:r.fuente}) });
   Object.values(prod).forEach(p=>{p.movs.sort((a,b)=>a.f<b.f?-1:1);p.vals.sort((a,b)=>a.f<b.f?-1:1)});
-  const debts={}; Dd.forEach(r=>{ debts[r.id]={id:String(r.id),nombre:r.nombre,entidad:r.entidad,capital:num(r.capital),tin:num(r.tin),cuota:num(r.cuota),primerPago:ds(r.primer_pago),n:num(r.n_cuotas),nota:r.nota} });
+  const debts={}; Dd.forEach(r=>{ debts[r.id]={id:String(r.id),nombre:r.nombre,entidad:r.entidad,capital:num(r.capital),tin:num(r.tin),cuota:num(r.cuota),primerPago:ds(r.primer_pago),n:num(r.n_cuotas),nota:r.nota,extras:(()=>{ try{ return r.amortizaciones?JSON.parse(r.amortizaciones):[] }catch(e){ return [] } })()} });
   const cfg=Object.assign({}, S.cfg); if (A[0]){ if(A[0].ipc!=='') cfg.ipc=num(A[0].ipc); cfg.avisos=String(A[0].avisos||'').split('|').map(s=>s.trim()).filter(Boolean) }
-  return {prod,debts,cfg};
+  return {prod,debts,cfg,log:LG};
 }
 async function pull(){
   setStatus('Leyendo OneDrive…');
@@ -186,7 +190,7 @@ async function pull(){
   catch(e){ dlog('Descarga del Excel falló ('+(dlu?'enlace directo':'Graph')+'): '+String(e.message||e).slice(0,100)); throw new Error('descarga_excel: '+(e.message||e)) }
   if(!r.ok){ dlog('Descarga del Excel: HTTP '+r.status); throw new Error('graph_'+r.status) }
   const st=stateFromWorkbook(await r.arrayBuffer());
-  S.prod=st.prod; S.debts=st.debts; S.cfg=st.cfg; S.mode='db'; dirty=false; lastSync=new Date();
+  S.prod=st.prod; S.debts=st.debts; S.cfg=st.cfg; S.log=st.log||[]; S.mode='db'; dirty=false; lastSync=new Date();
   setStatus('Sincronizado '+lastSync.toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'}), true); render();
 }
 async function push(force=false){
@@ -260,11 +264,12 @@ function pendingPeriodic(){
 function addMov(p, m){ p.movs=p.movs||[]; p.movs.push(m); p.movs.sort((a,b)=>a.f<b.f?-1:1) }
 function bindForms(){
   const fv=$('#fval'); if (fv) fv.onsubmit=async e=>{e.preventDefault(); const f=new FormData(fv); const fecha=f.get('fecha'); let n=0;
-    for (const [k,v] of f.entries()){ if(!k.startsWith('v_')||v==='') continue; const p=S.prod[k.slice(2)]; p.vals=(p.vals||[]).filter(x=>x.f!==fecha); p.vals.push({f:fecha,v:+v,fia:'Dato',fu:'Actualización manual'}); p.vals.sort((a,b)=>a.f<b.f?-1:1); await persist('p',p); n++ }
+    for (const [k,v] of f.entries()){ if(!k.startsWith('v_')||v==='') continue; const p=S.prod[k.slice(2)]; const _o=lastVal(p)?.v; logChange('Actualizar valor','producto',p.id,p.nombre,`${_o!=null?eur(_o,2)+' → ':''}${eur(+v,2)}`,{f:fecha,antes:_o??'',despues:+v}); p.vals=(p.vals||[]).filter(x=>x.f!==fecha); p.vals.push({f:fecha,v:+v,fia:'Dato',fu:'Actualización manual'}); p.vals.sort((a,b)=>a.f<b.f?-1:1); await persist('p',p); n++ }
     actMode=null; render(); toast(n?`${n} valores guardados`:'No has cambiado ningún valor') };
   const fm=$('#fmov'); if (fm) fm.onsubmit=async e=>{e.preventDefault(); const f=new FormData(fm); const p=S.prod[f.get('pid')]; const tipo=f.get('tipo'); const imp=+f.get('imp'); const precio=+f.get('precio')||null; const orig=f.get('orig');
     const ext = orig==='ext' ? (tipo==='entrada'?imp:-imp) : 0;
     addMov(p,{f:f.get('f'),tipo,imp,ext,cls:orig==='ext'?(tipo==='entrada'?'Dinero nuevo':'Retirada'):'Interno',fia:'Dato',mov:tipo==='entrada'?'Aportación':'Retirada',precio,uds:precio?imp/precio:null,nota:f.get('nota')||''});
+    logChange(orig==='ext'?(tipo==='entrada'?'Aportación de dinero nuevo':'Retirada a cuenta corriente'):'Traspaso','producto',p.id,p.nombre,orig==='ext'?(f.get('nota')||''):(tipo==='entrada'?S.prod[orig].nombre+' → '+p.nombre:p.nombre+' → '+S.prod[orig].nombre),{f:f.get('f'),importe:tipo==='entrada'?imp:-imp});
     await persist('p',p);
     if (orig!=='ext' && S.prod[orig] && orig!==p.id){ const o=S.prod[orig]; addMov(o,{f:f.get('f'),tipo:tipo==='entrada'?'salida':'entrada',imp,ext:0,cls:'Interno',fia:'Dato',mov:tipo==='entrada'?`Hacia ${p.nombre}`:`Desde ${p.nombre}`,nota:''}); await persist('p',o) }
     actMode=null; render(); toast('Movimiento guardado') };
@@ -272,18 +277,19 @@ function bindForms(){
     const p={id:uid(),nombre:f.get('nombre'),entidad:f.get('entidad'),tipo,categoria:catOf(tipo),traspasable:tipo==='Fondo',estado:'activo',costePct:f.get('coste')?+f.get('coste'):null,isin:f.get('isin')||'',nota:'',apertura:fecha,
       periodica: f.get('pimp')?{importe:+f.get('pimp'),frecuencia:f.get('pfreq'),hasta:fecha}:null,movs:[],vals:[{f:fecha,v:imp,fia:'Dato',fu:'Importe de apertura'}]};
     addMov(p,{f:fecha,tipo:'entrada',imp,ext:orig==='ext'?imp:0,cls:orig==='ext'?'Dinero nuevo':'Interno',fia:'Dato',mov:'Apertura',precio,uds:precio?imp/precio:null,nota:''});
-    S.prod[p.id]=p; await persist('p',p);
+    S.prod[p.id]=p; logChange('Nuevo producto','producto',p.id,p.nombre,`${tipo} en ${p.entidad}${orig!=='ext'&&S.prod[orig]?' · desde '+S.prod[orig].nombre:''}`,{f:fecha,importe:imp}); await persist('p',p);
     if (orig!=='ext' && S.prod[orig]){ const o=S.prod[orig]; addMov(o,{f:fecha,tipo:'salida',imp,ext:0,cls:'Interno',fia:'Dato',mov:`Hacia ${p.nombre}`,nota:''}); await persist('p',o) }
     actMode=null; render(); toast('Inversión creada') };
   const fc=$('#fclose'); if (fc) fc.onsubmit=async e=>{e.preventDefault(); const f=new FormData(fc); const p=S.prod[f.get('pid')]; const imp=+f.get('imp'); const dest=f.get('dest'); const fecha=f.get('f');
     addMov(p,{f:fecha,tipo:'salida',imp,ext:dest==='ext'?-imp:0,cls:dest==='ext'?'Retirada':'Interno',fia:'Dato',mov:'Venta',nota:''});
     if (f.get('total')){ p.estado='cerrado'; p.cierre=fecha; p.vals=(p.vals||[]).filter(x=>x.f!==fecha); p.vals.push({f:fecha,v:0,fia:'Dato',fu:'Cierre'}); p.vals.sort((a,b)=>a.f<b.f?-1:1) }
+    logChange(f.get('total')?'Cierre del producto':'Venta parcial','producto',p.id,p.nombre,dest==='ext'?'A cuenta corriente':'→ '+S.prod[dest].nombre,{f:fecha,importe:-imp});
     await persist('p',p);
     if (dest!=='ext' && S.prod[dest]){ const o=S.prod[dest]; addMov(o,{f:fecha,tipo:'entrada',imp,ext:0,cls:'Interno',fia:'Dato',mov:`Desde ${p.nombre}`,nota:''}); await persist('p',o) }
     actMode=null; render(); toast('Venta registrada') };
   const gp=$('#genper'); if (gp) gp.onclick=async()=>{ const pend=pendingPeriodic(); const by={};
     pend.forEach(x=>{ (by[x.pid]=by[x.pid]||[]).push(x) });
-    for (const [pid,xs] of Object.entries(by)){ const p=S.prod[pid]; xs.forEach(x=>addMov(p,{f:x.f,tipo:'entrada',imp:x.imp,ext:x.imp,cls:'Dinero nuevo',fia:'Periódica',mov:'Aportación periódica',nota:''})); p.periodica.hasta=xs[xs.length-1].f; await persist('p',p) }
+    for (const [pid,xs] of Object.entries(by)){ const p=S.prod[pid]; xs.forEach(x=>addMov(p,{f:x.f,tipo:'entrada',imp:x.imp,ext:x.imp,cls:'Dinero nuevo',fia:'Periódica',mov:'Aportación periódica',nota:''})); p.periodica.hasta=xs[xs.length-1].f; logChange('Aportaciones periódicas','producto',p.id,p.nombre,`${xs.length} aportaciones registradas`,{f:xs[xs.length-1].f,importe:xs.reduce((s,x)=>s+x.imp,0)}); await persist('p',p) }
     actMode=null; render(); toast(`${pend.length} aportaciones registradas`) };
 }
 /* ================== INTERFAZ (estilo app bancaria) ================== */
@@ -320,6 +326,7 @@ const CATTXT = {
   'Efectivo':'Dinero en cuentas corrientes normales que no pagan nada. Es útil para el día a día, pero cada año compra un poco menos por culpa de la inflación.'};
 function explain(key,c){
   const _r2=explain2(key,c); if(_r2) return _r2;
+  if (key==='log') return {t:c.accion,v:c.importe!==''&&c.importe!=null?eur(+c.importe,2):'',what:`${esc(c.nombre||'')}${c.detalle?': '+esc(c.detalle):''}`,you:`Registrado el <b>${fdt(c.ts)}</b>${c.fecha_efecto?`, con fecha de efecto ${fdate(c.fecha_efecto)}`:''}.<br>Usuario: ${esc(c.usuario||'—')}<br>Dispositivo: ${esc(c.dispositivo||'—')}<br>Origen: ${esc(c.origen||'App')}${c.antes!==''&&c.antes!=null?`<br>Antes: ${typeof c.antes==='number'?eur(c.antes,2):esc(c.antes)}`:''}${c.despues!==''&&c.despues!=null?` · Después: ${typeof c.despues==='number'?eur(c.despues,2):esc(c.despues)}`:''}`,tip:'La bitácora guarda cada cambio que haces en la app, en la hoja "Bitacora" de tu Excel. Sirve para saber qué cambió, cuándo y desde qué dispositivo.'};
   const T=(t,v,what,you,tip)=>({t,v,what,you,tip});
   switch(key){
     case 'neto': return T('Patrimonio neto',eur(c.neto),'Es lo que te quedaría si hoy vendieras todo y pagaras todas tus deudas. Se suma todo lo que tienes y se resta lo que debes.',`Tienes ${eur(c.activos)} y debes ${eur(c.deuda)}.<br><b>${eur(c.activos)} − ${eur(c.deuda)} = ${eur(c.neto)}</b>`,'Usa el último valor que metiste de cada producto. Si alguno lleva tiempo sin actualizar, esta cifra puede no ser exacta.');
@@ -405,7 +412,7 @@ function signed(n,d=0){ return n==null?'—':(n>0?'+':'')+eur(n,d) }
 function renderInicio(){
   const el=$('#inicio'); if (!Object.keys(S.prod).length){ el.innerHTML=noData(); return }
   const t=totals(); const tot=t.activos||1; const nd=Object.values(S.debts).filter(d=>loanAt(d).bal>0);
-  const cuota=nd.reduce((s,d)=>s+d.cuota,0);
+  const cuota=nd.reduce((s,d)=>s+loanAt(d).cuota,0);
   const [ints,dec]=eur(t.neto,2).replace(/\s?€/,'').split(',');
   const y=String(new Date().getFullYear()); let yExt=0; for (const p of Object.values(S.prod)) for (const m of p.movs||[]) if (m.ext && m.f.startsWith(y)) yExt+=m.ext;
   const ser=series(); const an=ser?annual(ser):[]; const cur=an.find(a=>a.y===y);
@@ -568,6 +575,7 @@ function openProduct(id){
     <div class="pd-h">${avatar(p.entidad,true)}<div><div class="pd-n">${esc(p.nombre)}</div><div class="pd-s">${esc(p.entidad)} · ${esc(p.tipo)}${p.isin?' · '+esc(p.isin):''}</div></div></div>
     ${closed?`<div class="pd-v num"${xi('p_gan',{gan:s.gan,v:0,sal:s.sal,ent:s.ent})}>${signed(s.gan,2)}</div><div class="pd-g">Resultado final · cerrado el <span${xi('c_fin',{f:p.cierre})}>${fdate(p.cierre)}</span></div>`
     :`<div class="pd-v num"${xi('p_valor',{v:s.v,f:s.lv?.f,stale:s.stale})}>${eur(s.v,2)}</div>${s.gan!=null&&p.categoria!=='Efectivo'?`<div class="pd-g"><span class="num ${s.gan>=0?'pos':'neg'}"${xi('p_gan',{gan:s.gan,v:s.v,sal:s.sal,ent:s.ent})}>${signed(s.gan,2)}</span> · <span class="num"${xi('p_pct',{pct:s.pct,gan:s.gan,ent:s.ent})}>${pct(s.pct)}</span></div>`:''}`}
+    ${actionBar(p)}
     ${(p.vals||[]).length>1?`<div class="pchart"><canvas id="pchart" aria-label="Evolución del valor"></canvas></div>`:''}
     <div class="card"><div class="tiles">
       ${closed?`<div class="tile"${xi('c_ent',{v:s.ent})}><span>Aportado</span><b class="num">${eur(s.ent)}</b></div><div class="tile"${xi('c_rec',{v:s.sal})}><span>Recuperado</span><b class="num">${eur(s.sal)}</b></div>`
@@ -587,6 +595,7 @@ function openProduct(id){
     ${p.nota?`<div class="note">${ICON.info}<span>${esc(p.nota)}</span></div>`:''}
     <div class="card"><div class="card-h">Movimientos</div>${movs.map(({m,i})=>`<div class="row"${xi('mov',m)}><span class="row-m"><b class="wrap">${esc(m.mov||'Movimiento')}</b><small>${sdate(m.f)}${m.aprox?' ≈':''} · ${esc(m.cls||'')}${m.fia&&m.fia!=='Dato'?' · '+esc(m.fia):''}</small></span><span class="row-r num ${m.tipo==='salida'?'neg':''}">${m.tipo==='salida'?'−':'+'}${eur(m.imp,2)}</span><button class="del" data-dm="${i}" aria-label="Borrar movimiento">×</button></div>`).join('')||'<div class="empty">Sin movimientos.</div>'}</div>
     <div class="card"><div class="card-h">Valoraciones</div>${vals.map(({v,i})=>`<div class="row"${xi('val',v)}><span class="row-m"><b>${fdate(v.f)}</b><small>${esc(v.fu||'')}${v.fia&&v.fia!=='Dato'?' · '+esc(v.fia):''}</small></span><span class="row-r num">${eur(v.v,2)}</span><button class="del" data-dv="${i}" aria-label="Borrar valoración">×</button></div>`).join('')||'<div class="empty">Sin valoraciones.</div>'}</div>
+    <div class="card"><div class="card-h">Historial de cambios</div>${logRows((S.log||[]).filter(l=>l.objeto_id===p.id).slice(-15))}</div>
     <details class="card edit"><summary>Editar este producto</summary>
       <form id="fedit">
       <label class="fl">Coste anual (%)<input type="number" inputmode="decimal" step="0.01" name="coste" value="${p.costePct??''}"></label>
@@ -610,16 +619,17 @@ function openProduct(id){
       options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{title:i=>fdate(i[0].label),label:c=>eur(c.parsed.y,2)}}},scales:{x:{display:false},y:{display:false}}}}) }
   $('#fedit',dlg).onsubmit=async e=>{e.preventDefault(); const f=new FormData(e.target); p.costePct=f.get('coste')===''?null:+f.get('coste'); const est=f.get('estado'); if(est==='cerrado'&&p.estado!=='cerrado'){p.cierre=today()} p.estado=est;
     p.periodica = f.get('pimp')? {importe:+f.get('pimp'),frecuencia:f.get('pfreq'),hasta:p.periodica?.hasta||today()} : null;
-    p.riesgo=f.get('riesgo')?+f.get('riesgo'):null; ['clase','gestion','liquidez','regiones','sectores','divisas'].forEach(k=>p[k]=String(f.get(k)||'').trim()); await persist('p',p); render(); openProduct(id); toast('Cambios guardados')};
-  dlg.querySelectorAll('[data-dm]').forEach(b=>b.onclick=async ev=>{ ev.stopPropagation(); if(!confirm('¿Borrar este movimiento?'))return; p.movs.splice(+b.dataset.dm,1); await persist('p',p); render(); openProduct(id) });
-  dlg.querySelectorAll('[data-dv]').forEach(b=>b.onclick=async ev=>{ ev.stopPropagation(); if(!confirm('¿Borrar esta valoración?'))return; p.vals.splice(+b.dataset.dv,1); await persist('p',p); render(); openProduct(id) });
-  $('#delp',dlg).onclick=async()=>{ if(!confirm(`¿Borrar ${p.nombre} y todo su historial?`))return; delete S.prod[id]; await remove('p',id); dlg.close(); render(); toast('Producto borrado') };
+    p.riesgo=f.get('riesgo')?+f.get('riesgo'):null; ['clase','gestion','liquidez','regiones','sectores','divisas'].forEach(k=>p[k]=String(f.get(k)||'').trim()); logChange('Editar datos del producto','producto',p.id,p.nombre,`Coste ${p.costePct??'—'} % · estado ${p.estado} · riesgo ${p.riesgo??'—'}`); await persist('p',p); render(); openProduct(id); toast('Cambios guardados')};
+  dlg.querySelectorAll('[data-dm]').forEach(b=>b.onclick=async ev=>{ ev.stopPropagation(); if(!confirm('¿Borrar este movimiento?'))return; const _m=p.movs.splice(+b.dataset.dm,1)[0]; logChange('Borrar movimiento','producto',p.id,p.nombre,_m.mov||'',{f:_m.f,importe:_m.tipo==='salida'?-_m.imp:_m.imp}); await persist('p',p); render(); openProduct(id) });
+  dlg.querySelectorAll('[data-dv]').forEach(b=>b.onclick=async ev=>{ ev.stopPropagation(); if(!confirm('¿Borrar esta valoración?'))return; const _v=p.vals.splice(+b.dataset.dv,1)[0]; logChange('Borrar valoración','producto',p.id,p.nombre,'',{f:_v.f,antes:_v.v}); await persist('p',p); render(); openProduct(id) });
+  $('#delp',dlg).onclick=async()=>{ if(!confirm(`¿Borrar ${p.nombre} y todo su historial?`))return; logChange('Borrar producto','producto',p.id,p.nombre,`Valor ${eur(value(p),2)}`); delete S.prod[id]; await remove('p',id); dlg.close(); render(); toast('Producto borrado') };
 }
 
 /* ---------- Más: deudas, datos y ajustes ---------- */
+let LOGALL=false;
 function renderMas(){
   const el=$('#mas'); const ds=Object.values(S.debts);
-  const tot=ds.reduce((s,d)=>s+loanAt(d).bal,0), cuota=ds.reduce((s,d)=>s+(loanAt(d).bal>0?d.cuota:0),0);
+  const tot=ds.reduce((s,d)=>s+loanAt(d).bal,0), cuota=ds.reduce((s,d)=>s+loanAt(d).cuota,0);
   const st=$('#status span')?.textContent||'';
   el.innerHTML=`<h2 class="h2">Deudas</h2>
   <div class="card"><div class="tiles">
@@ -629,17 +639,20 @@ function renderMas(){
     <div class="prog"${xi('l_amort',{L,d})}><i style="width:${L.pctAmort*100}%"></i></div>
     <div class="tiles three">
       <div class="tile"${xi('l_bal',{L,d})}><span>Pendiente</span><b class="num">${eur(L.bal)}</b></div>
-      <div class="tile"${xi('l_cuota',{L,d})}><span>Cuota</span><b class="num">${eur(d.cuota,2)}</b></div>
+      <div class="tile"${xi('l_cuota',{L,d:Object.assign({},d,{cuota:L.cuota})})}><span>Cuota</span><b class="num">${eur(L.cuota,2)}</b></div>
       <div class="tile"${xi('l_rest',{L,d})}><span>Quedan</span><b class="num">${L.restantes}</b></div>
       <div class="tile"${xi('l_int',{L,d})}><span>Intereses</span><b class="num">${eur(L.intereses)}</b></div>
       <div class="tile"${xi('l_amort',{L,d})}><span>Devuelto</span><b class="num">${pctTxt(L.pctAmort)}</b></div>
-      <div class="tile"${xi('l_fin',{L,d})}><span>Fin</span><b class="num">${sdate(L.fin)}</b></div></div></div>`}).join('')}
+      <div class="tile"${xi('l_fin',{L,d})}><span>Fin</span><b class="num">${sdate(L.fin)}</b></div></div>
+    <div class="btns"><button class="btn ghost" data-debt="amort" data-did="${esc(d.id)}">Amortizar</button><button class="btn ghost" data-debt="edit" data-did="${esc(d.id)}">Editar</button></div></div>`}).join('')}
   <details class="card edit"><summary>Añadir préstamo</summary>
     <form id="fdebt"><label class="fl">Nombre<input name="nombre" required placeholder="Préstamo coche"></label><label class="fl">Entidad<input name="entidad" required></label>
     <label class="fl">Capital inicial (€)<input name="capital" type="number" inputmode="decimal" step="0.01" required></label><label class="fl">TIN (%)<input name="tin" type="number" inputmode="decimal" step="0.001" required></label>
     <label class="fl">Cuota (€)<input name="cuota" type="number" inputmode="decimal" step="0.01" required></label><label class="fl">Primera cuota<input name="primerPago" type="date" required></label>
     <label class="fl">Número de cuotas<input name="n" type="number" inputmode="numeric" required></label><button class="btn wide">Añadir préstamo</button></form></details>
 
+  <h2 class="h2">Bitácora de cambios</h2>
+  <div class="card">${logRows((S.log||[]).slice(LOGALL?0:-12))}${(S.log||[]).length>12?`<button class="btn ghost wide" id="logall" style="margin-top:10px">${LOGALL?'Ver menos':'Ver los '+S.log.length+' cambios'}</button>`:''}</div>
   <h2 class="h2">Tus datos</h2>
   <div class="card">
     <div class="row"${xi('sync',{s:st})}><span class="row-m"><b>OneDrive</b><small>${esc(st)}</small></span></div>
@@ -651,25 +664,27 @@ function renderMas(){
   <div class="card"><div class="card-h">Importar clasificación</div><p class="hint">Añade riesgo, regiones, sectores, monedas y costes a tus productos desde un Excel, sin tocar movimientos ni valores.</p><label class="btn ghost wide" style="cursor:pointer">Elegir archivo<input type="file" id="impc" accept=".xlsx" hidden></label><p class="hint" id="impcmsg"></p></div>
   <details class="card edit"><summary>Ajustes</summary><form id="fcfg"><label class="fl">Inflación de referencia (%)<input type="number" inputmode="decimal" step="0.1" name="ipc" value="${S.cfg.ipc}"></label><label class="fl">Avisos (uno por línea)<textarea name="avisos" rows="5">${esc((S.cfg.avisos||[]).join('\n'))}</textarea></label><button class="btn wide">Guardar ajustes</button></form></details>
   <button class="btn wide danger" id="out">Cerrar sesión</button>`;
-  el.querySelectorAll('[data-deld]').forEach(b=>b.onclick=async()=>{ if(!confirm('¿Borrar este préstamo?'))return; delete S.debts[b.dataset.deld]; await remove('d',b.dataset.deld); render(); toast('Préstamo borrado') });
-  $('#fdebt').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target);const d={id:uid(),nombre:f.get('nombre'),entidad:f.get('entidad'),capital:+f.get('capital'),tin:+f.get('tin'),cuota:+f.get('cuota'),primerPago:f.get('primerPago'),n:+f.get('n')};S.debts[d.id]=d;await persist('d',d);render();toast('Préstamo añadido')};
+  el.querySelectorAll('[data-deld]').forEach(b=>b.onclick=async()=>{ if(!confirm('¿Borrar este préstamo?'))return; logChange('Borrar préstamo','deuda',b.dataset.deld,S.debts[b.dataset.deld]?.nombre||''); delete S.debts[b.dataset.deld]; await remove('d',b.dataset.deld); render(); toast('Préstamo borrado') });
+  $('#fdebt').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target);const d={id:uid(),nombre:f.get('nombre'),entidad:f.get('entidad'),capital:+f.get('capital'),tin:+f.get('tin'),cuota:+f.get('cuota'),primerPago:f.get('primerPago'),n:+f.get('n')};S.debts[d.id]=d; logChange('Nuevo préstamo','deuda',d.id,d.nombre,`${eur(d.capital)} · TIN ${d.tin} %`,{importe:d.capital}); await persist('d',d);render();toast('Préstamo añadido')};
   $('#reload').onclick=()=>{ if(dirty&&!confirm('Hay cambios sin guardar. ¿Recargar igualmente?'))return; pull().catch(()=>toast('No se ha podido leer OneDrive')) };
   $('#exp').onclick=()=>{ const u=URL.createObjectURL(new Blob([workbookFromState()])); const a=document.createElement('a'); a.href=u; a.download=`patrimonio_${today()}.xlsx`; a.click(); setTimeout(()=>URL.revokeObjectURL(u),5000) };
   $('#out').onclick=logout;
+  const _la=$('#logall'); if(_la) _la.onclick=()=>{ LOGALL=!LOGALL; renderMas() };
   $('#impc').onchange=async ev=>{ const file=ev.target.files[0]; if(!file) return; const msg=$('#impcmsg');
     try{ const wb=XLSX.read(await file.arrayBuffer(),{type:'array'}); const ws=wb.Sheets['Clasificación']||wb.Sheets['Clasificacion']||wb.Sheets['Productos']; const R=XLSX.utils.sheet_to_json(ws,{defval:''});
       let n=0; for (const r of R){ const p=S.prod[String(r.id)]; if(!p) continue; n++;
         if (r.riesgo!=='') p.riesgo=+r.riesgo; ['clase','gestion','liquidez','regiones','sectores','divisas'].forEach(k=>{ if(r[k]!=='') p[k]=String(r[k]) });
         if (r.coste_pct!==''&&r.coste_pct!=null) p.costePct=+String(r.coste_pct).replace(',','.') }
       if(!n){ msg.textContent='El archivo no contiene productos que coincidan con los tuyos.'; return }
+      logChange('Importar clasificación','datos','',file.name,`${n} productos actualizados`,{origen:'Importación'});
       render(); await push(); toast(`Clasificación añadida a ${n} productos`); msg.textContent=`Actualizados ${n} productos.`;
     }catch(e){ msg.textContent='No se ha podido leer el archivo.' } ev.target.value='' };
   $('#imp').onchange=async ev=>{ const file=ev.target.files[0]; if(!file) return; const msg=$('#impmsg');
     try{ const st=stateFromWorkbook(await file.arrayBuffer());
       if(!confirm(`Se sustituirán tus datos por ${Object.keys(st.prod).length} productos. ¿Continuar?`)) return;
-      S.prod=st.prod; S.debts=st.debts; S.cfg=st.cfg; render(); await push(true); toast('Datos importados y guardados en OneDrive');
+      S.prod=st.prod; S.debts=st.debts; S.cfg=st.cfg; S.log=(st.log&&st.log.length?st.log:S.log)||[]; logChange('Importar Excel completo','datos','',file.name,`${Object.keys(st.prod).length} productos`,{origen:'Importación'}); render(); await push(true); toast('Datos importados y guardados en OneDrive');
     }catch(e){ msg.textContent='No se ha podido leer el archivo. Usa un Excel exportado desde la app.' } ev.target.value='' };
-  $('#fcfg').onsubmit=e=>{e.preventDefault(); const f=new FormData(e.target); S.cfg.ipc=+f.get('ipc'); S.cfg.avisos=String(f.get('avisos')).split('\n').map(s=>s.trim()).filter(Boolean); schedule(); render(); toast('Ajustes guardados')};
+  $('#fcfg').onsubmit=e=>{e.preventDefault(); const f=new FormData(e.target); S.cfg.ipc=+f.get('ipc'); S.cfg.avisos=String(f.get('avisos')).split('\n').map(s=>s.trim()).filter(Boolean); logChange('Cambiar ajustes','ajustes','','',`Inflación ${S.cfg.ipc} % · ${S.cfg.avisos.length} avisos`); schedule(); render(); toast('Ajustes guardados')};
 }
 
 
@@ -838,6 +853,108 @@ function renderAnalisis(){
     ${k.sinCoste.length?`<p class="hint">Sin dato de coste: ${esc(k.sinCoste.join(', '))}.</p>`:''}</div>`;
   if (TAB==='analisis') drawDonuts(el);
 }
+
+
+/* ================== BITÁCORA DE CAMBIOS ================== */
+function devName(){ const u=navigator.userAgent||''; const os=/iPhone/.test(u)?'iPhone':/iPad/.test(u)?'iPad':/Android/.test(u)?'Android':/Macintosh/.test(u)?'Mac':/Windows/.test(u)?'Windows':'Otro';
+  const b=/Edg/.test(u)?'Edge':/CriOS|Chrome/.test(u)?'Chrome':/FxiOS|Firefox/.test(u)?'Firefox':/Safari/.test(u)?'Safari':'Navegador';
+  let app=''; try{ app=(matchMedia('(display-mode: standalone)').matches||navigator.standalone)?' (app instalada)':'' }catch(e){} return `${os} · ${b}${app}` }
+function logChange(accion, objeto, id, nombre, detalle, x={}){
+  S.log=S.log||[];
+  S.log.push({id:uid(), ts:new Date().toISOString(), accion, objeto, objeto_id:id||'', nombre:nombre||'', detalle:detalle||'', fecha_efecto:x.f||'', importe:x.importe??'', antes:x.antes??'', despues:x.despues??'', origen:x.origen||'App', usuario:ACCOUNT?.username||'', dispositivo:devName()});
+}
+const fdt = s => { try{ return new Date(s).toLocaleString('es-ES',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}) }catch(e){ return s } };
+function logRows(list){ return list.slice().reverse().map(l=>`<div class="row"${xi('log',l)}><span class="row-m"><b class="wrap">${esc(l.accion)}${l.nombre?' · '+esc(l.nombre):''}</b><small>${fdt(l.ts)} · ${esc(l.dispositivo||'')}</small></span>${l.importe!==''&&l.importe!=null?`<span class="row-r num">${eur(+l.importe,2)}</span>`:''}</div>`).join('')||'<div class="empty">Todavía no hay cambios registrados.</div>' }
+
+/* ================== ACCIONES DIRECTAS SOBRE CADA PRODUCTO ================== */
+function otherOpts(p){ return Object.values(S.prod).filter(o=>o.id!==p.id&&o.estado!=='cerrado').sort((a,b)=>(a.entidad+a.nombre).localeCompare(b.entidad+b.nombre)).map(o=>`<option value="${esc(o.id)}">${esc(o.entidad)} — ${esc(o.nombre)}</option>`).join('') }
+function adjustValue(p,f,delta,src){
+  const lv=lastVal(p);
+  if (lv && f<lv.f) return false;
+  const base=lv?lv.v:netIn(p)-delta;
+  p.vals=(p.vals||[]).filter(x=>x.f!==f); p.vals.push({f,v:Math.max(0,Math.round((base+delta)*100)/100),fia:'Dato',fu:src}); p.vals.sort((a,b)=>a.f<b.f?-1:1); return true;
+}
+function openAction(kind,id){
+  const p=S.prod[id]; if(!p) return; const sh=$('#sheet'); const cash=p.categoria!=='Inversión'; const lv=lastVal(p);
+  const fund=p.traspasable;
+  const T={valor:cash?'Actualizar saldo':'Actualizar valor',aportar:cash?'Ingresar dinero':'Aportar dinero',retirar:'Sacar dinero',traspaso:'Traspasar',cerrar:cash?'Cerrar cuenta':'Vender o cerrar'}[kind];
+  const fecha=`<label class="fl">Fecha<input type="date" name="f" value="${today()}" required></label>`;
+  const nota=`<label class="fl">Nota (opcional)<input name="nota"></label>`;
+  let body='';
+  if (kind==='valor') body=`<p class="hint">${cash?'Mira el saldo en la app del banco y escríbelo aquí.':'Mira lo que vale hoy en la app del banco o bróker. Si ha subido o bajado, aquí se refleja.'}</p>
+    <label class="fl">${cash?'Saldo':'Valor'} actual (€)<input type="number" inputmode="decimal" step="0.01" name="v" required placeholder="${lv?eur(lv.v,2):''}"></label>${fecha}`;
+  if (kind==='aportar') body=`<label class="fl">Importe (€)<input type="number" inputmode="decimal" step="0.01" name="imp" required></label>${fecha}
+    <label class="fl">¿De dónde sale el dinero?<select name="orig"><option value="ext">Dinero nuevo, de mi cuenta corriente</option>${otherOpts(p).replace(/>([^<]+)<\/option>/g,'>Traspaso desde $1</option>')}</select></label>
+    ${cash?'':`<label class="fl">Precio de compra (opcional)<input type="number" inputmode="decimal" step="0.000001" name="precio"></label>`}
+    <label class="check"><input type="checkbox" name="adj" checked> Sumar este importe al ${cash?'saldo':'valor'} actual</label>${nota}`;
+  if (kind==='retirar') body=`<label class="fl">Importe (€)<input type="number" inputmode="decimal" step="0.01" name="imp" required></label>${fecha}
+    <label class="fl">¿Adónde va el dinero?<select name="orig"><option value="ext">A mi cuenta corriente</option>${otherOpts(p).replace(/>([^<]+)<\/option>/g,'>Traspaso a $1</option>')}</select></label>
+    <label class="check"><input type="checkbox" name="adj" checked> Restar este importe del ${cash?'saldo':'valor'} actual</label>
+    ${!cash&&!fund?'<p class="hint">Ojo: al sacar dinero de este producto, Hacienda cobra impuestos sobre la parte de ganancia.</p>':''}${nota}`;
+  if (kind==='traspaso') body=`<div class="seg2"><label><input type="radio" name="dir" value="out" checked><span>De aquí a otro</span></label><label><input type="radio" name="dir" value="in"><span>De otro a aquí</span></label></div>
+    <label class="fl">El otro producto<select name="otro" required>${otherOpts(p)}</select></label>
+    <label class="fl">Importe (€)<input type="number" inputmode="decimal" step="0.01" name="imp" required></label>${fecha}
+    <label class="check"><input type="checkbox" name="adj" checked> Ajustar el valor de los dos productos</label>
+    <p class="hint">Un traspaso solo cambia el dinero de sitio: no cuenta como dinero nuevo. ${fund?'Entre fondos de inversión no paga impuestos.':'Si este producto no es un fondo, sacar el dinero puede pagar impuestos.'}</p>${nota}`;
+  if (kind==='cerrar') body=`<label class="fl">Importe cobrado (€)<input type="number" inputmode="decimal" step="0.01" name="imp" required value="${lv?lv.v:''}"></label>${fecha}
+    <label class="fl">¿Adónde va el dinero?<select name="orig"><option value="ext">A mi cuenta corriente</option>${otherOpts(p).replace(/>([^<]+)<\/option>/g,'>Traspaso a $1</option>')}</select></label>
+    <label class="check"><input type="checkbox" name="total" checked> Cerrar del todo (desaparece de tus productos activos)</label>${nota}`;
+  sh.innerHTML=`<div class="grab"></div><div class="sh-b"><div class="sh-t">${esc(p.nombre)}</div><div class="sh-v" style="font-size:26px">${T}</div><form id="fact">${body}<button class="btn wide">Guardar</button><button type="button" class="btn ghost wide" data-close>Cancelar</button></form></div>`;
+  openSheet(sh);
+  $('#fact',sh).onsubmit=async e=>{ e.preventDefault(); const f=new FormData(e.target); const fe=f.get('f'); const nt=f.get('nota')||''; const imp=+f.get('imp')||0; let msg='Guardado'; let warn=false;
+    if (kind==='valor'){ const v=+f.get('v'); const old=lv?.v; p.vals=(p.vals||[]).filter(x=>x.f!==fe); p.vals.push({f:fe,v,fia:'Dato',fu:'Actualización manual'}); p.vals.sort((a,b)=>a.f<b.f?-1:1);
+      logChange(T,'producto',p.id,p.nombre,`${old!=null?eur(old,2)+' → ':''}${eur(v,2)}${old!=null?` (${signed(v-old,2)})`:''}`,{f:fe,antes:old??'',despues:v}); msg=cash?'Saldo actualizado':'Valor actualizado' }
+    if (kind==='aportar'||kind==='retirar'){ const inn=kind==='aportar'; const o=f.get('orig'); const ext=o==='ext'; const precio=+f.get('precio')||null;
+      addMov(p,{f:fe,tipo:inn?'entrada':'salida',imp,ext:ext?(inn?imp:-imp):0,cls:ext?(inn?'Dinero nuevo':'Retirada'):'Interno',fia:'Dato',mov:ext?(inn?(cash?'Ingreso':'Aportación'):'Retirada'):(inn?`Traspaso desde ${S.prod[o].nombre}`:`Traspaso a ${S.prod[o].nombre}`),precio,uds:precio?imp/precio:null,nota:nt});
+      if (f.get('adj') && !adjustValue(p,fe,inn?imp:-imp,inn?'Calculado: valor anterior + aportación':'Calculado: valor anterior − retirada')) warn=true;
+      if (!ext){ const q=S.prod[o]; addMov(q,{f:fe,tipo:inn?'salida':'entrada',imp,ext:0,cls:'Interno',fia:'Dato',mov:inn?`Traspaso a ${p.nombre}`:`Traspaso desde ${p.nombre}`,nota:nt}); if (f.get('adj')) adjustValue(q,fe,inn?-imp:imp,'Calculado por traspaso') }
+      logChange(ext?(inn?(cash?'Ingreso':'Aportación de dinero nuevo'):'Retirada a cuenta corriente'):'Traspaso',ext?'producto':'traspaso',p.id,p.nombre,ext?`${inn?'+':'−'}${eur(imp,2)}${nt?' · '+nt:''}`:`${inn?S.prod[o].nombre+' → '+p.nombre:p.nombre+' → '+S.prod[o].nombre}${nt?' · '+nt:''}`,{f:fe,importe:inn?imp:-imp});
+      msg=inn?'Aportación guardada':'Retirada guardada' }
+    if (kind==='traspaso'){ const q=S.prod[f.get('otro')]; const out=f.get('dir')==='out'; const [from,to]=out?[p,q]:[q,p];
+      addMov(from,{f:fe,tipo:'salida',imp,ext:0,cls:'Interno',fia:'Dato',mov:`Traspaso a ${to.nombre}`,nota:nt}); addMov(to,{f:fe,tipo:'entrada',imp,ext:0,cls:'Interno',fia:'Dato',mov:`Traspaso desde ${from.nombre}`,nota:nt});
+      if (f.get('adj')){ if(!adjustValue(from,fe,-imp,'Calculado por traspaso')) warn=true; if(!adjustValue(to,fe,imp,'Calculado por traspaso')) warn=true }
+      logChange('Traspaso','traspaso',p.id,p.nombre,`${from.nombre} → ${to.nombre}${nt?' · '+nt:''}`,{f:fe,importe:imp}); msg='Traspaso guardado' }
+    if (kind==='cerrar'){ const o=f.get('orig'); const ext=o==='ext';
+      addMov(p,{f:fe,tipo:'salida',imp,ext:ext?-imp:0,cls:ext?'Retirada':'Interno',fia:'Dato',mov:ext?'Venta / cierre':`Venta y traspaso a ${S.prod[o].nombre}`,nota:nt});
+      if (!ext){ const q=S.prod[o]; addMov(q,{f:fe,tipo:'entrada',imp,ext:0,cls:'Interno',fia:'Dato',mov:`Desde ${p.nombre}`,nota:nt}); adjustValue(q,fe,imp,'Calculado por traspaso') }
+      const antes=lv?.v; if (f.get('total')){ p.estado='cerrado'; p.cierre=fe; p.vals=(p.vals||[]).filter(x=>x.f!==fe); p.vals.push({f:fe,v:0,fia:'Dato',fu:'Cierre'}); p.vals.sort((a,b)=>a.f<b.f?-1:1) }
+      else adjustValue(p,fe,-imp,'Calculado: venta parcial');
+      logChange(f.get('total')?'Cierre del producto':'Venta parcial','producto',p.id,p.nombre,`Cobrado ${eur(imp,2)}${ext?' a cuenta corriente':' → '+S.prod[o].nombre}`,{f:fe,importe:-imp,antes:antes??'',despues:f.get('total')?0:''}); msg=f.get('total')?'Producto cerrado':'Venta guardada' }
+    schedule(); sh.close(); render(); openProduct(p.id); toast(warn?msg+'. Valor no ajustado: hay una valoración posterior a esa fecha':msg);
+  };
+}
+function actionBar(p){ if (p.estado==='cerrado') return '';
+  const cash=p.categoria!=='Inversión';
+  const b=[['valor',ICON.refresh,cash?'Saldo':'Valor'],['aportar',ICON.down,cash?'Ingresar':'Aportar'],['retirar',ICON.up,'Sacar'],['traspaso',ICON.repeat,'Traspasar'],['cerrar',ICON.plus.replace('M12 5v14M5 12h14','M6 6l12 12M18 6L6 18'),'Cerrar']];
+  return `<div class="actions pact">${b.map(([k,ic,l])=>`<button class="act" data-act="${k}" data-aid="${esc(p.id)}"><span>${ic}</span>${l}</button>`).join('')}</div>` }
+document.addEventListener('click',e=>{ const a=e.target.closest('[data-act]'); if(a){ openAction(a.dataset.act,a.dataset.aid) } });
+
+/* ================== DEUDAS: editar y amortizar ================== */
+function openDebt(kind,id){
+  const d=S.debts[id]; if(!d) return; const sh=$('#sheet'); const L=loanAt(d);
+  let body='';
+  if (kind==='edit') body=`<label class="fl">Nombre<input name="nombre" value="${esc(d.nombre)}" required></label><label class="fl">Entidad<input name="entidad" value="${esc(d.entidad)}" required></label>
+    <label class="fl">Capital inicial (€)<input name="capital" type="number" inputmode="decimal" step="0.01" value="${d.capital}" required></label><label class="fl">TIN (%)<input name="tin" type="number" inputmode="decimal" step="0.001" value="${d.tin}" required></label>
+    <label class="fl">Cuota inicial (€)<input name="cuota" type="number" inputmode="decimal" step="0.01" value="${d.cuota}" required></label><label class="fl">Primera cuota<input name="primerPago" type="date" value="${d.primerPago}" required></label>
+    <label class="fl">Número de cuotas<input name="n" type="number" inputmode="numeric" value="${d.n}" required></label><label class="fl">Nota<input name="nota" value="${esc(d.nota||'')}"></label>`;
+  if (kind==='amort') body=`<p class="hint">Pendiente hoy: <b>${eur(L.bal,2)}</b>. Amortizar es devolver parte del préstamo antes de tiempo.</p>
+    <label class="fl">Importe (€)<input name="imp" type="number" inputmode="decimal" step="0.01" required></label><label class="fl">Fecha<input name="f" type="date" value="${today()}" required></label>
+    <div class="seg2"><label><input type="radio" name="modo" value="plazo" checked><span>Acortar plazo</span></label><label><input type="radio" name="modo" value="cuota"><span>Bajar cuota</span></label></div>
+    <p class="hint">Acortar plazo: pagas lo mismo cada mes y terminas antes (ahorras más intereses). Bajar cuota: terminas en la misma fecha pagando menos al mes.</p>
+    <label class="fl">Comisión pagada (€, opcional)<input name="com" type="number" inputmode="decimal" step="0.01"></label>`;
+  sh.innerHTML=`<div class="grab"></div><div class="sh-b"><div class="sh-t">${esc(d.nombre)}</div><div class="sh-v" style="font-size:26px">${kind==='edit'?'Editar préstamo':'Amortizar'}</div><form id="fdeb">${body}<button class="btn wide">Guardar</button><button type="button" class="btn ghost wide" data-close>Cancelar</button></form>
+    ${(d.extras||[]).length?`<div class="sublab">Amortizaciones registradas</div>${d.extras.map((x,i)=>`<div class="row"><span class="row-m"><b>${eur(x.imp,2)}</b><small>${fdate(x.f)} · ${x.modo==='cuota'?'bajar cuota':'acortar plazo'}</small></span><button class="del" data-dex="${i}">×</button></div>`).join('')}`:''}</div>`;
+  openSheet(sh);
+  sh.querySelectorAll('[data-dex]').forEach(b=>b.onclick=()=>{ if(!confirm('¿Borrar esta amortización?'))return; const x=d.extras.splice(+b.dataset.dex,1)[0]; logChange('Borrar amortización','deuda',d.id,d.nombre,`${eur(x.imp,2)} del ${fdate(x.f)}`,{f:x.f,importe:x.imp}); schedule(); sh.close(); render(); toast('Amortización borrada') });
+  $('#fdeb',sh).onsubmit=e=>{ e.preventDefault(); const f=new FormData(e.target);
+    if (kind==='edit'){ const before=`${eur(d.capital)} · TIN ${d.tin} % · ${eur(d.cuota,2)} · ${d.n} cuotas`;
+      Object.assign(d,{nombre:f.get('nombre'),entidad:f.get('entidad'),capital:+f.get('capital'),tin:+f.get('tin'),cuota:+f.get('cuota'),primerPago:f.get('primerPago'),n:+f.get('n'),nota:f.get('nota')});
+      logChange('Editar préstamo','deuda',d.id,d.nombre,`${before} → ${eur(d.capital)} · TIN ${d.tin} % · ${eur(d.cuota,2)} · ${d.n} cuotas`,{antes:before}) }
+    else { const before=loanAt(d).bal; d.extras=d.extras||[]; d.extras.push({f:f.get('f'),imp:+f.get('imp'),modo:f.get('modo'),com:+f.get('com')||0}); d.extras.sort((a,b)=>a.f<b.f?-1:1);
+      logChange('Amortización anticipada','deuda',d.id,d.nombre,`${f.get('modo')==='cuota'?'Bajar cuota':'Acortar plazo'}${+f.get('com')?' · comisión '+eur(+f.get('com'),2):''}`,{f:f.get('f'),importe:+f.get('imp'),antes:Math.round(before*100)/100,despues:Math.round(loanAt(d).bal*100)/100}) }
+    schedule(); sh.close(); render(); toast('Préstamo actualizado') };
+}
+document.addEventListener('click',e=>{ const a=e.target.closest('[data-debt]'); if(a){ openDebt(a.dataset.debt,a.dataset.did) } });
 
 /* ---------- arranque ---------- */
 document.getElementById('loginbtn').onclick=()=>login();

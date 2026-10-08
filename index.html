@@ -105,6 +105,9 @@ main{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch
 .act{border:0;background:none;display:flex;flex-direction:column;align-items:center;gap:7px;font-size:12px;font-weight:600;cursor:pointer;color:var(--ink)}
 .act span{width:52px;height:52px;border-radius:50%;background:var(--surface);display:grid;place-items:center;color:var(--accent)}
 .act:active span{background:var(--accent-soft)}
+.actions.pact{grid-template-columns:repeat(5,1fr);margin:6px 0 16px}
+.actions.pact .act span{width:48px;height:48px;background:var(--surface)}
+.btns .btn.ghost{background:var(--surface-2)}
 
 /* ---- activos ---- */
 .chips{display:flex;gap:8px;overflow-x:auto;margin:0 -14px 12px;padding:0 14px;scrollbar-width:none}
