@@ -132,7 +132,10 @@ let MSAL=null, ACCOUNT=null, ETAG=null, dirty=false, saving=false, saveTimer=nul
 function setStatus(txt, ok){ const st=$('#status'); st.classList.toggle('ok',!!ok); st.querySelector('span').textContent=txt; const m=$('#mstatus'); if(m) m.textContent=txt }
 async function token(){
   try { return (await MSAL.acquireTokenSilent({scopes:SCOPES, account:ACCOUNT})).accessToken }
-  catch(e){ await MSAL.acquireTokenRedirect({scopes:SCOPES, account:ACCOUNT}); throw e }
+  catch(e){
+    if (loopCount(false)>2){ clearMsal(); showGate('El inicio de sesión se repite sin terminar ('+(e.errorCode||e.message||'error')+'). Cierra la app del todo y vuelve a abrirla desde Safari o Chrome.'); throw e }
+    await MSAL.acquireTokenRedirect({scopes:SCOPES, account:ACCOUNT}); throw e
+  }
 }
 async function graph(path, opts={}){
   const t=await token();
@@ -204,21 +207,33 @@ async function persist(){ schedule() }
 async function remove(){ schedule() }
 async function load(){
   try{
-    if (!CFG.clientId || CFG.clientId.startsWith('PEGA')){ showGate('Falta configurar la app: pega tu identificador de aplicación en config.js.'); return }
-    MSAL=new msal.PublicClientApplication({auth:{clientId:CFG.clientId,authority:'https://login.microsoftonline.com/consumers',redirectUri:location.origin+location.pathname.replace(/index\.html$/,'')},cache:{cacheLocation:'sessionStorage'}});
+    if (!CFG.clientId || String(CFG.clientId).startsWith('PEGA')){ showGate('Falta configurar la app: pega tu identificador de aplicación en config.js.'); return }
+    const idleMs=(CFG.idleMinutes||15)*60000;
+    let last=0; try{ last=+localStorage.getItem('pat_last')||0 }catch(e){}
+    const volviendoDeLogin=/[#?&](code|error)=/.test(location.href);
+    if (last && Date.now()-last>idleMs && !volviendoDeLogin) clearMsal();
+    MSAL=new msal.PublicClientApplication({auth:{clientId:CFG.clientId,authority:'https://login.microsoftonline.com/consumers',redirectUri:location.origin+location.pathname.replace(/index\.html$/,''),navigateToLoginRequestUrl:false},
+      cache:{cacheLocation:'localStorage',storeAuthStateInCookie:true}});
     await MSAL.initialize();
-    const res=await MSAL.handleRedirectPromise();
+    let res=null;
+    try{ res=await MSAL.handleRedirectPromise() }
+    catch(e){ showGate('Microsoft no ha completado el inicio de sesión ('+(e.errorCode||e.message)+'). Pulsa Entrar de nuevo.'); return }
+    if (volviendoDeLogin){ try{ history.replaceState(null,'',location.pathname) }catch(e){} }
     ACCOUNT=res?.account || MSAL.getAllAccounts()[0] || null;
     if (!ACCOUNT){ showGate(); return }
-    hideGate(); $('#who').textContent=ACCOUNT.username||'';
+    touch(); hideGate(); $('#who').textContent=ACCOUNT.username||'';
     await pull();
+    loopCount(true);
   }catch(e){ showGate('No se ha podido conectar con OneDrive ('+(e.errorCode||e.message||'error')+'). Vuelve a intentarlo.') }
 }
+function clearMsal(){ try{ Object.keys(localStorage).filter(k=>k!=='pat_loop'&&k!=='pat_last'&&/msal|login\.windows|microsoftonline|^[0-9a-f]{8}-/i.test(k)).forEach(k=>localStorage.removeItem(k)) }catch(e){} try{ sessionStorage.clear() }catch(e){} }
+function touch(){ try{ localStorage.setItem('pat_last',String(Date.now())) }catch(e){} }
+function loopCount(reset){ try{ if(reset){ localStorage.removeItem('pat_loop'); return 0 } const o=JSON.parse(localStorage.getItem('pat_loop')||'{"n":0,"t":0}'); const n=(Date.now()-o.t<180000?o.n:0)+1; localStorage.setItem('pat_loop',JSON.stringify({n,t:Date.now()})); return n }catch(e){ return 0 } }
 function showGate(msg){ $('#gate').hidden=false; $('.app').hidden=true; $('#gatemsg').textContent=msg||'' }
 function hideGate(){ $('#gate').hidden=true; $('.app').hidden=false }
-function login(){ MSAL.loginRedirect({scopes:SCOPES, prompt:'login'}) }
-async function logout(){ const a=ACCOUNT; S.prod={}; S.debts={}; sessionStorage.clear(); await MSAL.logoutRedirect({account:a, postLogoutRedirectUri:location.origin+location.pathname.replace(/index\.html$/,'')}) }
-let idle=null; function bumpIdle(){ clearTimeout(idle); idle=setTimeout(()=>{ if(!dirty){ S.prod={}; S.debts={}; sessionStorage.clear(); location.reload() } }, (CFG.idleMinutes||15)*60000) }
+function login(){ if (loopCount(false)>3){ clearMsal(); loopCount(true); showGate('Se ha intentado entrar varias veces sin éxito. Cierra la app del todo y ábrela desde Safari o Chrome.'); return } MSAL.loginRedirect({scopes:SCOPES, prompt:'select_account'}) }
+async function logout(){ const a=ACCOUNT; S.prod={}; S.debts={}; try{localStorage.removeItem('pat_last')}catch(e){} clearMsal(); await MSAL.logoutRedirect({account:a, postLogoutRedirectUri:location.origin+location.pathname.replace(/index\.html$/,'')}) }
+let idle=null; function bumpIdle(){ if (ACCOUNT) touch(); clearTimeout(idle); idle=setTimeout(()=>{ if(!dirty){ S.prod={}; S.debts={}; clearMsal(); location.reload() } }, (CFG.idleMinutes||15)*60000) }
 ['click','keydown','touchstart'].forEach(ev=>document.addEventListener(ev,bumpIdle,{passive:true})); bumpIdle();
 document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible' && ACCOUNT && !dirty && !saving && lastSync && (Date.now()-lastSync)>60000) pull().catch(()=>{}) });
 window.addEventListener('beforeunload',e=>{ if(dirty||saving){ e.preventDefault(); e.returnValue='' } });
