@@ -148,7 +148,7 @@ dialog::backdrop{background:rgba(10,18,28,.45)}
 </style>
 </head>
 <body>
-<div id="gate" hidden><div class="gatebox"><h1>Mi patrimonio</h1><p class="lede" style="margin:0 auto 22px">Entra con tu cuenta Microsoft. La aprobarás en Microsoft Authenticator.</p><button class="btn" id="loginbtn" style="justify-self:center">Entrar con Microsoft</button><p class="hint" id="gatemsg" style="margin-top:14px"></p></div></div>
+<div id="gate" hidden><div class="gatebox"><h1>Mi patrimonio</h1><p class="lede" style="margin:0 auto 22px">Entra con tu cuenta Microsoft. La aprobarás en Microsoft Authenticator.</p><button class="btn" id="loginbtn" style="justify-self:center">Entrar con Microsoft</button><p class="hint" id="gatemsg" style="margin-top:14px"></p><details style="margin-top:18px;text-align:left"><summary class="hint" style="cursor:pointer">Detalles técnicos (para enviar a Claude)</summary><pre id="gatelog" style="white-space:pre-wrap;font-size:12px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px;margin-top:8px"></pre><button class="btn ghost" id="clearlog" style="margin-top:8px">Borrar detalles</button></details></div></div>
 <div class="app" hidden>
   <nav class="side" aria-label="Secciones">
     <div class="brand">Mi patrimonio<small id="asof">Cargando…</small></div>

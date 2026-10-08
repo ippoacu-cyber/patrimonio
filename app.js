@@ -133,6 +133,7 @@ function setStatus(txt, ok){ const st=$('#status'); st.classList.toggle('ok',!!o
 async function token(){
   try { return (await MSAL.acquireTokenSilent({scopes:SCOPES, account:ACCOUNT})).accessToken }
   catch(e){
+    dlog('Token silencioso falló: '+(e.errorCode||'')+' '+String(e.message||'').slice(0,100));
     if (loopCount(false)>2){ clearMsal(); showGate('El inicio de sesión se repite sin terminar ('+(e.errorCode||e.message||'error')+'). Cierra la app del todo y vuelve a abrirla desde Safari o Chrome.'); throw e }
     await MSAL.acquireTokenRedirect({scopes:SCOPES, account:ACCOUNT}); throw e
   }
@@ -211,27 +212,32 @@ async function load(){
     const idleMs=(CFG.idleMinutes||15)*60000;
     let last=0; try{ last=+localStorage.getItem('pat_last')||0 }catch(e){}
     const volviendoDeLogin=/[#?&](code|error)=/.test(location.href);
+    const modo=(window.matchMedia&&matchMedia('(display-mode: standalone)').matches)||navigator.standalone?'app instalada':'navegador';
+    dlog('Inicio · '+modo+' · '+(volviendoDeLogin?'vuelve de Microsoft':'apertura normal')+(/error=/.test(location.href)?' · error='+decodeURIComponent((location.href.match(/error_description=([^&]*)/)||[])[1]||'').slice(0,120):''));
     if (last && Date.now()-last>idleMs && !volviendoDeLogin) clearMsal();
     MSAL=new msal.PublicClientApplication({auth:{clientId:CFG.clientId,authority:'https://login.microsoftonline.com/consumers',redirectUri:location.origin+location.pathname.replace(/index\.html$/,''),navigateToLoginRequestUrl:false},
-      cache:{cacheLocation:'localStorage',storeAuthStateInCookie:true}});
+      cache:{cacheLocation:'localStorage',temporaryCacheLocation:'localStorage',storeAuthStateInCookie:true}});
     await MSAL.initialize();
     let res=null;
     try{ res=await MSAL.handleRedirectPromise() }
-    catch(e){ showGate('Microsoft no ha completado el inicio de sesión ('+(e.errorCode||e.message)+'). Pulsa Entrar de nuevo.'); return }
+    catch(e){ dlog('Fallo al procesar la respuesta: '+(e.errorCode||'')+' '+String(e.message||'').slice(0,120)); showGate('Microsoft no ha completado el inicio de sesión ('+(e.errorCode||e.message)+'). Pulsa Entrar de nuevo.'); return }
+    dlog('Respuesta: '+(res?'recibida':'ninguna')+' · cuentas guardadas: '+MSAL.getAllAccounts().length);
     if (volviendoDeLogin){ try{ history.replaceState(null,'',location.pathname) }catch(e){} }
     ACCOUNT=res?.account || MSAL.getAllAccounts()[0] || null;
     if (!ACCOUNT){ showGate(); return }
     touch(); hideGate(); $('#who').textContent=ACCOUNT.username||'';
     await pull();
     loopCount(true);
-  }catch(e){ showGate('No se ha podido conectar con OneDrive ('+(e.errorCode||e.message||'error')+'). Vuelve a intentarlo.') }
+  }catch(e){ dlog('Error general: '+(e.errorCode||'')+' '+String(e.message||'').slice(0,120)); showGate('No se ha podido conectar con OneDrive ('+(e.errorCode||e.message||'error')+'). Vuelve a intentarlo.') }
 }
+function dlog(m){ try{ const a=JSON.parse(localStorage.getItem('pat_log')||'[]'); a.push(new Date().toLocaleTimeString('es-ES')+' '+m); localStorage.setItem('pat_log',JSON.stringify(a.slice(-20))) }catch(e){} }
+function showLog(){ let a=[]; try{ a=JSON.parse(localStorage.getItem('pat_log')||'[]') }catch(e){} const el=document.getElementById('gatelog'); if(el) el.textContent=a.join('\n') }
 function clearMsal(){ try{ Object.keys(localStorage).filter(k=>k!=='pat_loop'&&k!=='pat_last'&&/msal|login\.windows|microsoftonline|^[0-9a-f]{8}-/i.test(k)).forEach(k=>localStorage.removeItem(k)) }catch(e){} try{ sessionStorage.clear() }catch(e){} }
 function touch(){ try{ localStorage.setItem('pat_last',String(Date.now())) }catch(e){} }
 function loopCount(reset){ try{ if(reset){ localStorage.removeItem('pat_loop'); return 0 } const o=JSON.parse(localStorage.getItem('pat_loop')||'{"n":0,"t":0}'); const n=(Date.now()-o.t<180000?o.n:0)+1; localStorage.setItem('pat_loop',JSON.stringify({n,t:Date.now()})); return n }catch(e){ return 0 } }
-function showGate(msg){ $('#gate').hidden=false; $('.app').hidden=true; $('#gatemsg').textContent=msg||'' }
+function showGate(msg){ setTimeout(showLog,0); $('#gate').hidden=false; $('.app').hidden=true; $('#gatemsg').textContent=msg||'' }
 function hideGate(){ $('#gate').hidden=true; $('.app').hidden=false }
-function login(){ if (loopCount(false)>3){ clearMsal(); loopCount(true); showGate('Se ha intentado entrar varias veces sin éxito. Cierra la app del todo y ábrela desde Safari o Chrome.'); return } MSAL.loginRedirect({scopes:SCOPES, prompt:'select_account'}) }
+function login(){ dlog('Pulsado Entrar'); if (loopCount(false)>3){ clearMsal(); loopCount(true); showGate('Se ha intentado entrar varias veces sin éxito. Cierra la app del todo y ábrela desde Safari o Chrome.'); return } MSAL.loginRedirect({scopes:SCOPES, prompt:'select_account'}) }
 async function logout(){ const a=ACCOUNT; S.prod={}; S.debts={}; try{localStorage.removeItem('pat_last')}catch(e){} clearMsal(); await MSAL.logoutRedirect({account:a, postLogoutRedirectUri:location.origin+location.pathname.replace(/index\.html$/,'')}) }
 let idle=null; function bumpIdle(){ if (ACCOUNT) touch(); clearTimeout(idle); idle=setTimeout(()=>{ if(!dirty){ S.prod={}; S.debts={}; clearMsal(); location.reload() } }, (CFG.idleMinutes||15)*60000) }
 ['click','keydown','touchstart'].forEach(ev=>document.addEventListener(ev,bumpIdle,{passive:true})); bumpIdle();
@@ -510,6 +516,7 @@ document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
   window.scrollTo(0,0);
 });
 document.getElementById('loginbtn').onclick=()=>login();
+const _cl=document.getElementById('clearlog'); if(_cl) _cl.onclick=()=>{ try{localStorage.removeItem('pat_log');localStorage.removeItem('pat_loop')}catch(e){} document.getElementById('gatelog').textContent='' };
 render(); load();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
 })();
