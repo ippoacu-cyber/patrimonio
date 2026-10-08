@@ -174,11 +174,16 @@ function stateFromWorkbook(buf){
 }
 async function pull(){
   setStatus('Leyendo OneDrive…');
-  const meta=await graph('');
+  let meta; try{ meta=await graph('') }catch(e){ dlog('Lectura de OneDrive falló: '+String(e.message||e).slice(0,100)); throw e }
+  dlog('OneDrive respondió: HTTP '+meta.status);
   if (meta.status===404){ S.mode='nuevo'; ETAG=null; setStatus('No hay Excel todavía en OneDrive'); render(); return }
   if (!meta.ok) throw new Error('graph_'+meta.status);
   const j=await meta.json(); ETAG=j.eTag;
-  const r=await graph(':/content'); if(!r.ok) throw new Error('graph_'+r.status);
+  const dlu=j['@microsoft.graph.downloadUrl'];
+  let r;
+  try{ r = dlu ? await fetch(dlu,{cache:'no-store'}) : await graph(':/content') }
+  catch(e){ dlog('Descarga del Excel falló ('+(dlu?'enlace directo':'Graph')+'): '+String(e.message||e).slice(0,100)); throw new Error('descarga_excel: '+(e.message||e)) }
+  if(!r.ok){ dlog('Descarga del Excel: HTTP '+r.status); throw new Error('graph_'+r.status) }
   const st=stateFromWorkbook(await r.arrayBuffer());
   S.prod=st.prod; S.debts=st.debts; S.cfg=st.cfg; S.mode='db'; dirty=false; lastSync=new Date();
   setStatus('Sincronizado '+lastSync.toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'}), true); render();
