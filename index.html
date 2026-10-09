@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://graph.microsoft.com https://login.microsoftonline.com https://login.live.com https://*.1drv.com https://*.files.1drv.com https://*.microsoftpersonalcontent.com https://*.livefilestore.com https://onedrive.live.com https://*.sharepoint.com; frame-src https://login.microsoftonline.com https://login.live.com; base-uri 'self'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://servicios.ine.es https://graph.microsoft.com https://login.microsoftonline.com https://login.live.com https://*.1drv.com https://*.files.1drv.com https://*.microsoftpersonalcontent.com https://*.livefilestore.com https://onedrive.live.com https://*.sharepoint.com; frame-src https://login.microsoftonline.com https://login.live.com; base-uri 'self'; form-action 'self'">
 <meta name="referrer" content="no-referrer">
 <meta name="robots" content="noindex,nofollow">
 <title>Mi patrimonio</title>
@@ -11,26 +11,22 @@
 <link rel="icon" href="icons/favicon-32.png" sizes="32x32">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="theme-color" content="#F4F5F8" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0A0C11">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 :root{
-  --bg:#F4F5F8; --surface:#FFFFFF; --surface-2:#EEF0F4; --ink:#191C1F; --muted:#6F7682; --line:#E6E8EC;
-  --accent:#0666EB; --accent-soft:#E6F0FE; --pos:#00A36C; --neg:#E23B3B; --warn:#F5A524;
-  --inv:#0666EB; --ei:#8B5CF6; --ef:#A3ABB8;
+  --bg:#0A0C11; --surface:#141821; --surface-2:#1C2130; --ink:#EEF1F6; --muted:#8891A5; --line:#232938;
+  --accent:#5B8CFF; --accent-soft:#18233F; --pos:#2FD08F; --neg:#FF6B6B; --warn:#F5B841;
+  --inv:#5B8CFF; --ei:#A78BFA; --ef:#5E6B80;
   --inv-on:#FFFFFF; --ei-on:#C9B8FF; --ef-on:rgba(255,255,255,.45);
-  --hero:linear-gradient(150deg,#2B4CFF 0%,#6A3DF5 55%,#B53FD8 100%);
-  --r:22px; --sans:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-  color-scheme:light;
+  --hero:radial-gradient(120% 140% at 0% 0%,#26357A 0%,#1A1F4A 45%,#141821 100%);
+  --edge:rgba(255,255,255,.06);
+  --r:20px; --sans:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  color-scheme:dark;
 }
-@media (prefers-color-scheme:dark){:root{
-  --bg:#000000; --surface:#15161A; --surface-2:#22242A; --ink:#F4F5F7; --muted:#8C93A0; --line:#262931;
-  --accent:#3D8BFF; --accent-soft:#132544; --pos:#2BD18D; --neg:#FF5C5C;
-  --inv:#3D8BFF; --ei:#A383FF; --ef:#6B7280; color-scheme:dark}}
 *,*::before,*::after{box-sizing:border-box}
 html,body{height:100%;margin:0;overflow:hidden}
 body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.4;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
@@ -53,11 +49,11 @@ main{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch
 .tabbar{flex:none;display:grid;grid-template-columns:repeat(6,1fr);background:var(--surface);border-top:1px solid var(--line);padding:6px 6px calc(6px + env(safe-area-inset-bottom,0px))}
 .tb{border:0;background:none;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 0;color:var(--muted);font-size:10.5px;min-width:0;font-weight:600;cursor:pointer}
 .tb[aria-selected="true"]{color:var(--accent)}
-.tb.add span{width:44px;height:44px;margin-top:-4px;border-radius:50%;background:var(--accent);color:#fff;display:grid;place-items:center}
+.tb.add span{width:44px;height:44px;margin-top:-4px;border-radius:50%;background:linear-gradient(135deg,#5B8CFF,#8B6CFF);box-shadow:0 6px 18px rgba(91,140,255,.35);color:#fff;display:grid;place-items:center}
 .tb.add{color:var(--ink)}
 
 /* ---- tarjetas y filas ---- */
-.card{background:var(--surface);border-radius:var(--r);padding:16px;margin:0 0 12px}
+.card{background:var(--surface);border:1px solid var(--edge);border-radius:var(--r);padding:16px;margin:0 0 12px}
 .card-h{font-size:15px;font-weight:700;margin:0 0 8px;display:flex;align-items:center;gap:6px}
 .card-h small{color:var(--muted);font-weight:500}
 .card.list{padding:6px 8px}
@@ -93,12 +89,12 @@ main{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch
 .ib svg{width:16px;height:16px;color:var(--muted)}
 
 /* ---- portada ---- */
-.hero{background:var(--hero);color:#fff;border-radius:28px;padding:22px 20px 18px;margin:0 0 14px;text-align:center}
+.hero{background:var(--hero);border:1px solid rgba(120,140,255,.18);color:#fff;border-radius:26px;padding:22px 20px 18px;margin:0 0 14px;text-align:center}
 .hero-l{font-size:13px;opacity:.85;font-weight:500}
 .hero-n{font-size:clamp(40px,12vw,52px);font-weight:800;letter-spacing:-.03em;line-height:1.05;margin:6px 0 12px}
 .hero-n span{font-size:.5em;opacity:.8;font-weight:700}
 .hero-pills{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
-.pill{background:rgba(255,255,255,.18);border-radius:999px;padding:7px 13px;font-size:13px;font-weight:600}
+.pill{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.1);border-radius:999px;padding:7px 13px;font-size:13px;font-weight:600}
 .hero-bar{display:flex;height:8px;border-radius:999px;overflow:hidden;margin-top:18px;background:rgba(255,255,255,.2);gap:2px}
 .hero-bar i{display:block;height:100%}
 .actions{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:0 0 14px}
@@ -112,8 +108,8 @@ main{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch
 /* ---- activos ---- */
 .chips{display:flex;gap:8px;overflow-x:auto;margin:0 -14px 12px;padding:0 14px;scrollbar-width:none}
 .chips::-webkit-scrollbar{display:none}
-.chip{flex:none;border:0;background:var(--surface);border-radius:999px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;color:var(--ink)}
-.chip[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+.chip{flex:none;border:0;background:var(--surface-2);border-radius:999px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;color:var(--ink)}
+.chip[aria-pressed="true"]{background:var(--accent-soft);color:#BFD0FF;box-shadow:inset 0 0 0 1px rgba(91,140,255,.4)}
 
 /* ---- histórico ---- */
 .chartbox{position:relative;height:230px}
@@ -134,13 +130,13 @@ textarea{resize:vertical}
 .seg2{display:grid;grid-template-columns:1fr 1fr;background:var(--surface-2);border-radius:14px;padding:4px}
 .seg2 input{position:absolute;opacity:0;pointer-events:none}
 .seg2 span{display:block;text-align:center;padding:10px;border-radius:11px;font-weight:600;cursor:pointer}
-.seg2 input:checked+span{background:var(--surface);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.seg2 input:checked+span{background:var(--accent-soft);color:var(--ink);box-shadow:inset 0 0 0 1px rgba(91,140,255,.35)}
 .check{display:flex;gap:10px;align-items:center;font-size:14px}
 .check input{width:20px;height:20px}
 .vlist{display:grid}
 .vrow{min-width:0;display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
 .vrow input{width:120px;flex:none;text-align:right}
-.btn{appearance:none;border:0;background:var(--accent);color:#fff;padding:14px 18px;border-radius:999px;font-weight:700;cursor:pointer;font-size:15px}
+.btn{appearance:none;border:0;background:linear-gradient(135deg,#5B8CFF,#7C6CFF);color:#fff;padding:14px 18px;border-radius:999px;font-weight:700;cursor:pointer;font-size:15px}
 .btn:disabled{opacity:.45}
 .btn.ghost{background:var(--surface-2);color:var(--ink)}
 .btn.danger{background:none;color:var(--neg)}
@@ -201,7 +197,7 @@ details.edit form{margin-top:12px}
 @media (max-width:360px){.donut{grid-template-columns:1fr}}
 /* ---- hojas (explicaciones y ficha) ---- */
 dialog{border:0;padding:0;background:var(--surface);color:var(--ink);max-width:640px;width:100%}
-dialog::backdrop{background:rgba(0,0,0,.45)}
+dialog::backdrop{background:rgba(0,0,0,.65);backdrop-filter:blur(3px)}
 #sheet{margin:auto auto 0;border-radius:26px 26px 0 0;max-height:85vh;overflow:auto;padding-bottom:env(safe-area-inset-bottom,0px)}
 #sheet[open]{animation:up .22s ease-out}
 @keyframes up{from{transform:translateY(40px);opacity:.4}to{transform:none;opacity:1}}
@@ -230,7 +226,7 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
 .gatebox{max-width:380px;width:100%;text-align:center}
 .gatebox h1{font-size:40px;font-weight:800;letter-spacing:-.03em;margin:0 0 8px}
 .gatebox p{opacity:.9}
-.gatebox .btn{background:#fff;color:#191C1F;width:100%;margin-top:18px}
+.gatebox .btn{background:#EEF1F6;color:#0A0C11;width:100%;margin-top:18px}
 .gatebox details{margin-top:18px;text-align:left;font-size:13px}
 .gatebox pre{white-space:pre-wrap;font-size:12px;background:rgba(0,0,0,.25);border-radius:12px;padding:10px;margin-top:8px}
 #gatemsg{font-weight:600;margin-top:14px}
@@ -238,6 +234,28 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
 .toast.on{opacity:1}
 @media (min-width:700px){ .app{border-left:1px solid var(--line);border-right:1px solid var(--line)} }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* ---- v3: componentes nuevos ---- */
+.big{font-size:30px;font-weight:800;letter-spacing:-.02em;margin:2px 0 12px}
+.tiles.three{grid-template-columns:repeat(3,minmax(0,1fr))}
+.tile{border:1px solid var(--edge)}
+.linkbtn{display:flex;align-items:center;justify-content:space-between;width:100%;margin-top:12px;padding:12px 2px 2px;border:0;border-top:1px solid var(--line);background:none;color:var(--accent);font:inherit;font-weight:600;cursor:pointer}
+.linkbtn svg{width:16px;height:16px}
+.claim{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--line);cursor:pointer;font-size:14px;line-height:1.4}
+.claim:first-of-type{border-top:0}
+.claim svg{width:18px;height:18px;flex:none;color:var(--warn);margin-top:1px}
+details.kw{border-top:1px solid var(--line);margin-top:10px;padding-top:4px}
+details.kw summary{list-style:none;cursor:pointer;padding:10px 0;font-weight:600;display:flex;justify-content:space-between;align-items:center}
+details.kw summary::-webkit-details-marker{display:none}
+details.kw summary small{background:var(--surface-2);color:var(--muted);border-radius:999px;padding:2px 9px;font-size:12px}
+details.kw p{margin:0 0 8px;padding:10px 12px;background:var(--surface-2);border-radius:12px;font-size:13.5px;line-height:1.45;cursor:pointer}
+details.kw .hbar{grid-template-columns:minmax(0,1fr) auto auto;gap:10px}
+.chartbox.sm{height:170px;position:relative}
+.btn.sm{padding:8px 14px;font-size:13px}
+.btn.wide{width:100%}
+.check{display:flex;gap:10px;align-items:center;font-size:14px;margin:10px 0}
+.check input{width:18px;height:18px;accent-color:var(--accent)}
+input,select,textarea{background:var(--surface-2)!important;color:var(--ink)!important;border-color:var(--line)!important}
 </style>
 </head>
 <body>
