@@ -107,7 +107,7 @@ async function pull(){
   catch(e){ dlog('Descarga del Excel falló ('+(dlu?'enlace directo':'Graph')+'): '+String(e.message||e).slice(0,100)); throw new Error('descarga_excel: '+(e.message||e)) }
   if(!r.ok){ dlog('Descarga del Excel: HTTP '+r.status); throw new Error('graph_'+r.status) }
   const st=stateFromWorkbook(await r.arrayBuffer());
-  S.prod=st.prod; S.debts=st.debts; S.cfg=st.cfg; S.log=st.log||[]; S.mode='db'; dirty=false; lastSync=new Date();
+  S.prod=st.prod; S.debts=st.debts; S.cfg=st.cfg; S.log=st.log||[]; S.re=st.re||{}; S.reflows=st.reflows||[]; S.mode='db'; dirty=false; lastSync=new Date();
   setStatus('Sincronizado '+lastSync.toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'}), true); render();
 }
 async function push(force=false){
@@ -156,7 +156,7 @@ async function load(){
     await pull();
     loopCount(true);
     try{ if(processDebtCharges()) render() }catch(e){ dlog('Cargos préstamo: '+e.message) }
-    fetchIPC();
+    fetchIPC(); fetchFX();
   }catch(e){ dlog('Error general: '+(e.errorCode||'')+' '+String(e.message||'').slice(0,120)); showGate('No se ha podido conectar con OneDrive ('+(e.errorCode||e.message||'error')+'). Vuelve a intentarlo.') }
 }
 function dlog(m){ try{ const a=JSON.parse(localStorage.getItem('pat_log')||'[]'); a.push(new Date().toLocaleTimeString('es-ES')+' '+m); localStorage.setItem('pat_log',JSON.stringify(a.slice(-20))) }catch(e){} }
@@ -244,6 +244,7 @@ const CATTXT = {
   'Efectivo invertido':'Dinero en cuentas remuneradas y depósitos. No baja de valor y te paga un interés, pero normalmente gana menos de lo que suben los precios.',
   'Efectivo':'Efectivo libre: dinero en cuentas que no pagan nada, disponible para gastar o para invertir. Es útil para el día a día, pero cada año compra un poco menos por culpa de la inflación.'};
 function explain(key,c){
+  const _r5=explain5(key,c); if(_r5) return _r5;
   const _r4=explain4(key,c); if(_r4) return _r4;
   const _r3=explain3(key,c); if(_r3) return _r3;
   const _r2=explain2(key,c); if(_r2) return _r2;
@@ -397,7 +398,7 @@ function renderMas(){
   $('#imp').onchange=async ev=>{ const file=ev.target.files[0]; if(!file) return; const msg=$('#impmsg');
     try{ const st=stateFromWorkbook(await file.arrayBuffer());
       if(!confirm(`Se sustituirán tus datos por ${Object.keys(st.prod).length} productos. ¿Continuar?`)) return;
-      S.prod=st.prod; S.debts=st.debts; S.cfg=st.cfg; S.log=(st.log&&st.log.length?st.log:S.log)||[]; logChange('Importar Excel completo','datos','',file.name,`${Object.keys(st.prod).length} productos`,{origen:'Importación'}); render(); await push(true); toast('Datos importados y guardados en OneDrive');
+      S.prod=st.prod; S.debts=st.debts; S.cfg=st.cfg; S.re=st.re||{}; S.reflows=st.reflows||[]; S.log=(st.log&&st.log.length?st.log:S.log)||[]; logChange('Importar Excel completo','datos','',file.name,`${Object.keys(st.prod).length} productos`,{origen:'Importación'}); render(); await push(true); toast('Datos importados y guardados en OneDrive');
     }catch(e){ msg.textContent='No se ha podido leer el archivo. Usa un Excel exportado desde la app.' } ev.target.value='' };
   $('#fcfg').onsubmit=e=>{e.preventDefault(); const f=new FormData(e.target); S.cfg.ipc=+f.get('ipc'); S.cfg.msci=f.get('msci')===''?null:+f.get('msci'); S.cfg.mscref=String(f.get('mscref')||'').trim(); S.cfg.perdidasAno=f.get('pano')===''?null:+f.get('pano'); S.cfg.perdidas=f.get('perd')===''?null:+f.get('perd'); S.cfg.sp500=f.get('sp')===''?null:+f.get('sp'); S.cfg.sp500ref=String(f.get('spref')||'').trim(); S.cfg.avisos=String(f.get('avisos')).split('\n').map(s=>s.trim()).filter(Boolean); logChange('Cambiar ajustes','ajustes','','',`Inflación ${S.cfg.ipc} % · ${S.cfg.avisos.length} avisos`); schedule(); render(); toast('Ajustes guardados')};
 }
@@ -810,7 +811,7 @@ async function onDocPicked(p,file){
   let prev=[]; try{ prev=JSON.parse(p.claves_pdf||'[]') }catch(e){}
   p.claves_pdf=JSON.stringify(prev.filter(x=>x.doc!==file.name).concat(found).slice(-40));
   logChange('Subir documento','producto',p.id,p.nombre,`${file.name} · ${found.length} puntos detectados`);
-  schedule(); openProduct(p.id); toast(found.length?`Documento guardado · ${found.length} puntos a vigilar`:'Documento guardado');
+  schedule(); ((S.re||{})[p.id]?openRE:openProduct)(p.id); toast(found.length?`Documento guardado · ${found.length} puntos a vigilar`:'Documento guardado');
 }
 function clavesCard(p){
   const man=String(p.claves||'').split('\n').map(s=>s.trim()).filter(Boolean); let auto=[]; try{ auto=JSON.parse(p.claves_pdf||'[]') }catch(e){}
@@ -822,7 +823,7 @@ function clavesCard(p){
   </div>
   <div class="card"><div class="card-h">Documentos</div><div id="docbox"></div><label class="btn ghost wide" style="cursor:pointer;margin-top:10px">Subir PDF<input type="file" accept="application/pdf,.pdf" hidden data-docup="${esc(p.id)}"></label></div>`;
 }
-document.addEventListener('change',e=>{ const i=e.target.closest('[data-docup]'); if(i){ onDocPicked(S.prod[i.dataset.docup],i.files[0]); i.value='' } });
+document.addEventListener('change',e=>{ const i=e.target.closest('[data-docup]'); if(i){ onDocPicked(S.prod[i.dataset.docup]||(S.re||{})[i.dataset.docup],i.files[0]); i.value='' } });
 
 /* --- importar actualización (añade o completa productos, divide productos, ajustes) --- */
 async function importUpdate(file){
@@ -831,7 +832,7 @@ async function importUpdate(file){
   const ds=v=> typeof v==='number' ? new Date(Math.round((v-25569)*864e5)).toISOString().slice(0,10) : String(v).slice(0,10);
   const num=v=> v===''||v==null ? null : +String(v).replace(',','.');
   const P=sh('Productos').length?sh('Productos'):(sh('Clasificación').length?sh('Clasificación'):sh('Clasificacion'));
-  const M=sh('Movimientos'), V=sh('Valoraciones'), DV=sh('Dividir'), A=sh('Ajustes');
+  const M=sh('Movimientos'), V=sh('Valoraciones'), DV=sh('Dividir'), A=sh('Ajustes'), IR=sh('Inmuebles'), IF=sh('InmueblesFlujos');
   let nuevos=0, act=0, div=0; const created=new Set();
   const FIELDS=['nombre','entidad','tipo','categoria','isin','estado','clase','gestion','liquidez','regiones','sectores','divisas','nota','claves','ext720'];
   for (const r of P){ const id=String(r.id||'').trim(); if(!id) continue; let p=S.prod[id];
@@ -857,6 +858,12 @@ async function importUpdate(file){
     delete S.prod[from]; div++; logChange('Dividir producto','producto',from,par.nombre,`En ${kidVals.map(c=>c.nombre).join(', ')}`,{origen:'Importación'}) }
   if (A[0]){ const a=A[0]; if(a.perdidas_pendientes!==''&&a.perdidas_pendientes!=null) S.cfg.perdidas=num(a.perdidas_pendientes); if(a.sp500_ytd!==''&&a.sp500_ytd!=null) S.cfg.sp500=num(a.sp500_ytd); if(a.sp500_ref) S.cfg.sp500ref=String(a.sp500_ref); if(a.msci_ytd!==''&&a.msci_ytd!=null) S.cfg.msci=num(a.msci_ytd); if(a.msci_ref) S.cfg.mscref=String(a.msci_ref); if(a.perdidas_ano!==''&&a.perdidas_ano!=null) S.cfg.perdidasAno=num(a.perdidas_ano); if(a.avisos) S.cfg.avisos=String(a.avisos).split('|').map(s=>s.trim()).filter(Boolean) }
   logChange('Importar actualización','datos','',file.name,`${nuevos} nuevos · ${act} completados · ${div} divididos`,{origen:'Importación'});
+  S.re=S.re||{}; S.reflows=S.reflows||[]; let nre=0;
+  for (const r of IR){ const id=String(r.id||'').trim(); if(!id) continue; const o=S.re[id]||(S.re[id]={id}); nre++;
+    REF.forEach(k=>{ if(k==='id'||r[k]===''||r[k]==null) return; o[k]=['valor','hip_saldo','hip_amort','coste_local','fx_manual'].includes(k)?num(r[k]):['valor_fecha','hip_fecha'].includes(k)?ds(r[k]):String(r[k]) }) }
+  const ids=[...new Set(IF.map(r=>String(r.inmueble_id||'')).filter(Boolean))];
+  if (ids.length){ S.reflows=S.reflows.filter(x=>!ids.includes(x.re)); IF.forEach(r=>{ if(!r.inmueble_id||!r.fecha) return; S.reflows.push({re:String(r.inmueble_id),f:ds(r.fecha),tipo:String(r.tipo),eur:num(r.euros),local:num(r.importe_local),fia:String(r.fiabilidad||'Dato'),fuente:String(r.fuente||''),nota:String(r.nota||'')}) }) }
+  if (nre) { nuevos+=0; act+=nre; setTimeout(fetchFX,0) }
   return {nuevos,act,div};
 }
 
@@ -867,7 +874,7 @@ function explain3(key,c){
     case 'ext_total': return T('Invertido de tu bolsillo',eur(c.ext),'Lo que has metido en tus inversiones (fondos, ETF, acciones, cripto, seguros…) desde tus cuentas, menos lo que has sacado de vuelta a ellas. Los traspasos entre inversiones no cuentan porque el dinero solo cambia de sitio.',`En total, <b>${eur(c.ext)}</b> invertidos en neto desde tu primera inversión.`,'Una parte de esta cifra está reconstruida (aportaciones antiguas sin documento).');
     case 'gan_total': return T('Rentabilidad de tus inversiones',eur(c.gan),'Lo que han ganado tus inversiones por encima de lo que pusiste. Si metiste 100 € y ahora valen 120 €, has ganado 20 €. El efectivo no cuenta aquí: lo que entra en tus cuentas es tu sueldo, no rentabilidad.',`Valen hoy ${eur(c.tv)} y has invertido ${eur(c.ext)}.<br><b>${eur(c.tv)} − ${eur(c.ext)} = ${eur(c.gan)}</b>`,'Antes de impuestos. Incluye las inversiones ya cerradas.');
     case 'xirr_total': return T('Rentabilidad anual de tus inversiones',pct(c.x),'Cuánto han crecido tus inversiones de media cada año, teniendo en cuenta cuándo metiste cada euro (XIRR). Es la forma más justa de medir lo que has ganado tú.',`De media, <b>${pctTxt(c.x)} al año</b>. Los precios suben ahora un ${ipc} al año.`,'No incluye el efectivo, que se mide aparte.');
-    case 'activos': return T('Activos sin deudas',eur(c.v),'Todo lo que tienes sumado (inversiones y efectivo), sin restar lo que debes.',`Inversiones ${eur(c.inv)} + efectivo ${eur(c.cash)} = <b>${eur(c.v)}</b>.`,'Si restas tus préstamos sale tu patrimonio neto.');
+    case 'activos': return T('Activos sin deudas',eur(c.v),'Todo lo que tienes sumado (inversiones, efectivo y, si lo activas, tu parte neta de los inmuebles), sin restar tus préstamos en euros.',`Inversiones ${eur(c.inv)} + efectivo ${eur(c.cash)}${c.re?` + inmuebles (tu parte neta) ${eur(c.re)}`:''} = <b>${eur(c.v)}</b>.`,'Si restas tus préstamos sale tu patrimonio neto.');
     case 'inv_val': return T('Tus inversiones hoy',eur(c.tv),'Lo que valen ahora tus inversiones: el dinero que has puesto más lo que ha ganado (o perdido).',`Invertido ${eur(c.ext)} + rentabilidad ${signed(c.gan)} = <b>${eur(c.tv)}</b>.`,'');
     case 'year_new': return T(`Invertido en ${c.y}`,eur(c.v),'Lo que has metido en tus inversiones este año desde tus cuentas, menos lo que has retirado. Los traspasos entre inversiones no cuentan.',`<b>${eur(c.v)}</b> en neto.`,'');
     case 'ext_y': return T(`Invertido en ${c.y}`,eur(c.v),'Lo que metiste en inversiones ese año desde tus cuentas, menos lo que retiraste.',`<b>${eur(c.v)}</b>`,'');
@@ -908,7 +915,7 @@ function renderInicio(){
       <span class="pill"${xi('gan_total',{gan:t.gan,tv:t.tv,ext:t.ext})}>${signed(t.gan)} rentabilidad</span>
       <span class="pill"${xi('xirr_total',{x:t.x})}>${pct(t.x)} al año</span>
     </div>
-    <div class="hero-bar">${CATS.map(c=>`<i style="width:${t.by[c]/tot*100}%;background:var(${CATCOL[c]})"${xi('cat',{cat:c,v:t.by[c],share:t.by[c]/tot})}></i>`).join('')}</div>
+    <div class="hero-bar">${CATS.map(c=>`<i style="width:${t.by[c]/tot*100}%;background:var(${CATCOL[c]})"${xi('cat',{cat:c,v:t.by[c],share:t.by[c]/tot})}></i>`).join('')}${t.re&&t.re.inc>0?`<i style="width:${t.re.inc/tot*100}%;background:${RECOL}"></i>`:''}</div>
   </div>
   <div class="actions">
     <button class="act" data-go="anadir" data-mode="valores"><span>${ICON.refresh}</span>Valores</button>
@@ -924,7 +931,7 @@ function renderInicio(){
       <div class="tile"${xi('xirr_total',{x:t.x})}><span>Al año</span><b class="num">${pct(t.x)}</b></div>
     </div></div>
   <div class="card"><div class="tiles">
-    <div class="tile"${xi('activos',{v:t.activos,inv:t.tv,cash:t.cash})}><span>Activos sin deudas</span><b class="num">${eur(t.activos)}</b></div>
+    <div class="tile"${xi('activos',{v:t.activos,inv:t.tv,cash:t.cash,re:t.re?.inc||0})}><span>Activos sin deudas</span><b class="num">${eur(t.activos)}</b></div>
     <div class="tile"${xi('deuda',{deuda:t.deuda,n:nd.length,cuota})}><span>Deuda</span><b class="num neg">${eur(t.deuda)}</b></div>
     <div class="tile"${xi('cash_total',{tot:t.cash,ef:t.by['Efectivo'],ei:t.by['Efectivo invertido'],n:cashProds().length})}><span>Efectivo</span><b class="num">${eur(t.cash)}</b></div>
     <div class="tile"${xi('ipc_now',{})}><span>Inflación hoy</span><b class="num">${ipc}</b></div>
@@ -936,6 +943,7 @@ function renderInicio(){
     <details class="kw"><summary>Ver por producto <small>${L.rows.length}</small></summary>${L.rows.map(r=>`<div class="hbar"${xi('tax_prod',{n:r.p.nombre,v:r.v,base:r.base,g:r.g,alone:r.taxAlone,share:r.taxShare})}><span class="hb-l">${esc(r.p.nombre)}</span><span class="hb-v num ${r.g>=0?'pos':'neg'}">${signed(r.g)}</span><span class="hb-v num">${eur(r.taxShare)}</span></div>`).join('')}</details></div>
   <div class="card"><div class="card-h">Dónde está tu dinero</div>
     ${CATS.map(c=>`<div class="row"${xi('cat',{cat:c,v:t.by[c],share:t.by[c]/tot})}><span class="dot" style="background:var(${CATCOL[c]})"></span><span class="row-m"><b>${c==='Efectivo'?'Efectivo libre':c}</b><small>${c==='Efectivo invertido'?'cuentas remuneradas · ':c==='Efectivo'?'para gastar o invertir · ':''}${pctTxt(t.by[c]/tot)} del total</small></span><span class="row-r num">${eur(t.by[c])}</span></div>`).join('')}
+    ${reRows(t)}
   </div>
   ${inicioCharts()}
   ${bankAccordion(t)}
@@ -1084,10 +1092,13 @@ function workbookFromState(){
   Object.values(S.debts).forEach(d=>Dd.push({id:d.id,nombre:d.nombre,entidad:d.entidad,capital:d.capital,tin:d.tin,cuota:d.cuota,primer_pago:d.primerPago,n_cuotas:d.n,nota:d.nota||'',amortizaciones:(d.extras||[]).length?JSON.stringify(d.extras):'',comision_cancel:d.comision??'',cuenta_cargo:d.cuenta||'',cargado_hasta:d.cargado||''}));
   const wb=XLSX.utils.book_new();
   [['Productos',P],['Movimientos',M],['Valoraciones',V],['Deudas',Dd]].forEach(([n,r])=>XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(r),n));
+  if (Object.keys(S.re||{}).length){ XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(Object.values(S.re).map(r=>Object.fromEntries(REF.map(k=>[k,r[k]??''])))),'Inmuebles');
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet((S.reflows||[]).map(m=>({inmueble_id:m.re,fecha:m.f,tipo:m.tipo,euros:m.eur??'',importe_local:m.local??'',fiabilidad:m.fia||'',fuente:m.fuente||'',nota:m.nota||''}))),'InmueblesFlujos') }
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet((S.log||[]).length?S.log:[{id:'',ts:'',accion:'',objeto:'',objeto_id:'',nombre:'',detalle:'',fecha_efecto:'',importe:'',antes:'',despues:'',origen:'',usuario:'',dispositivo:''}]),'Bitacora');
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet([{ipc:S.cfg.ipc,ipc_ref:S.cfg.ipcRef||'',avisos:(S.cfg.avisos||[]).join(' | '),perdidas_pendientes:S.cfg.perdidas??'',sp500_ytd:S.cfg.sp500??'',sp500_ref:S.cfg.sp500ref||'',msci_ytd:S.cfg.msci??'',msci_ref:S.cfg.mscref||'',perdidas_ano:S.cfg.perdidasAno??''}]),'Ajustes');
   return XLSX.write(wb,{type:'array',bookType:'xlsx'});
 }
+const REF=['id','nombre','ubicacion','uso','divisa','valor','valor_fecha','valor_fuente','hip_saldo','hip_fecha','hip_amort','coste_local','fx_manual','incluir','cobro_desde','imp_hoja','imp_saldo','imp_neto','claves','claves_pdf'];
 function stateFromWorkbook(buf){
   const wb=XLSX.read(buf,{type:'array'});
   const sh=n=>wb.Sheets[n]?XLSX.utils.sheet_to_json(wb.Sheets[n],{defval:''}):[];
@@ -1104,7 +1115,9 @@ function stateFromWorkbook(buf){
   Object.values(prod).forEach(p=>{p.movs.sort((a,b)=>a.f<b.f?-1:1);p.vals.sort((a,b)=>a.f<b.f?-1:1)});
   const debts={}; Dd.forEach(r=>{ debts[r.id]={id:String(r.id),nombre:r.nombre,entidad:r.entidad,capital:num(r.capital),tin:num(r.tin),cuota:num(r.cuota),primerPago:ds(r.primer_pago),n:num(r.n_cuotas),nota:r.nota,comision:num(r.comision_cancel),cuenta:String(r.cuenta_cargo||''),cargado:r.cargado_hasta?ds(r.cargado_hasta):'',extras:(()=>{ try{ return r.amortizaciones?JSON.parse(r.amortizaciones):[] }catch(e){ return [] } })()} });
   const cfg=Object.assign({}, S.cfg); const a=A[0]; if (a){ if(a.ipc!=='') cfg.ipc=num(a.ipc); if(a.ipc_ref) cfg.ipcRef=String(a.ipc_ref); cfg.avisos=String(a.avisos||'').split('|').map(s=>s.trim()).filter(Boolean); if(a.perdidas_pendientes!==''&&a.perdidas_pendientes!=null) cfg.perdidas=num(a.perdidas_pendientes); if(a.sp500_ytd!==''&&a.sp500_ytd!=null) cfg.sp500=num(a.sp500_ytd); if(a.sp500_ref) cfg.sp500ref=String(a.sp500_ref); if(a.msci_ytd!==''&&a.msci_ytd!=null) cfg.msci=num(a.msci_ytd); if(a.msci_ref) cfg.mscref=String(a.msci_ref); if(a.perdidas_ano!==''&&a.perdidas_ano!=null) cfg.perdidasAno=num(a.perdidas_ano) }
-  return {prod,debts,cfg,log:LG};
+  const RE={}; sh('Inmuebles').forEach(r=>{ if(!r.id) return; const o={}; REF.forEach(k=>o[k]=r[k]===''?null:r[k]); o.id=String(r.id); ['valor','hip_saldo','hip_amort','coste_local','fx_manual'].forEach(k=>o[k]=num(r[k])); ['valor_fecha','hip_fecha'].forEach(k=>o[k]=r[k]?ds(r[k]):''); ['claves','claves_pdf','nombre','ubicacion','uso','divisa','valor_fuente','incluir','cobro_desde','imp_hoja','imp_saldo','imp_neto'].forEach(k=>o[k]=String(r[k]??'')); RE[o.id]=o });
+  const RF=sh('InmueblesFlujos').filter(r=>r.inmueble_id&&r.fecha).map(r=>({re:String(r.inmueble_id),f:ds(r.fecha),tipo:String(r.tipo),eur:num(r.euros),local:num(r.importe_local),fia:String(r.fiabilidad||'Dato'),fuente:String(r.fuente||''),nota:String(r.nota||'')}));
+  return {prod,debts,cfg,log:LG,re:RE,reflows:RF};
 }
 
 
@@ -1370,6 +1383,160 @@ function explain4(key,c){
     case 'd_cargo': return T('Día de cobro',`Día ${c.day}`,'El día del mes en que el banco te cobra la cuota. Ese día la app reduce la deuda automáticamente y, si eliges una cuenta, también resta la cuota de su saldo.',c.cta?`Se descuenta de <b>${esc(c.cta)}</b>.`:'Ahora no se descuenta de ninguna cuenta.','Puedes cambiar la cuenta en "Editar". Si actualizas el saldo a mano después, manda el saldo que pongas tú.');
     case 'd_cmp': return T('¿Amortizar o guardar el dinero?','','Amortizar es como invertir con una rentabilidad garantizada igual al tipo del préstamo. Compara con lo que te da tu mejor cuenta después de impuestos.',`Préstamo: <b>${String(c.tin).replace('.',',')} %</b>. Tu mejor cuenta (${esc(c.cn)}): ${String(c.tae).replace('.',',')} % bruto ≈ <b>${nf1(c.net)} %</b> neto.<br>Si cancelas todo hoy (${eur(c.full.bal)}): dejas de pagar ${eur(c.full.int)} de intereses${c.com?` y pagas ${eur(c.full.fee)} de comisión`:''}.`,'Mientras el tipo del préstamo sea mayor que lo que gana tu cuenta, amortizar sale mejor en números. Lo que pierdes es liquidez: valora si necesitarás ese dinero pronto (por ejemplo, para la vivienda).');
     case 'd_row': return c.extra?T('Amortización anticipada',eur(c.imp,2),'Un pago extra para devolver el préstamo antes.',`${fdate(c.f)} · ${c.modo==='cuota'?'bajar cuota':'acortar plazo'}${c.com?' · comisión '+eur(c.com,2):''}. Después quedaban ${eur(c.bal,2)}.`,''):T(`Cuota ${c.k||''}`,eur(c.cuota,2),'Una cuota mensual: parte intereses y parte capital.',`${fdate(c.f)}: intereses ${eur(c.int,2)} + capital ${eur(c.cap,2)}. Pendiente después: ${eur(c.bal,2)}.`,'Calculado con el TIN y el calendario del préstamo.');
+  }
+  return null;
+}
+
+
+/* ================== V5: inmuebles (en su moneda, con tipo de cambio del BCE) ================== */
+const RECOL='#F5B841';
+const CURSYM={BRL:'R$',USD:'US$',GBP:'£',EUR:'€'};
+const loc=(n,c,d=0)=> n==null||isNaN(n)?'—':(c==='EUR'?eur(n,d):`${CURSYM[c]||c} ${new Intl.NumberFormat('es-ES',{minimumFractionDigits:d,maximumFractionDigits:d}).format(n)}`);
+function fxRate(r){ const live=S.fx&&S.fx[r.divisa]; return live?live.r:(+r.fx_manual||null) }
+async function fetchFX(){
+  const curs=[...new Set(Object.values(S.re||{}).map(r=>r.divisa).filter(c=>c&&c!=='EUR'))]; if(!curs.length) return;
+  S.fx=S.fx||{}; let ok=false;
+  for (const c of curs){
+    for (const u of [`https://api.frankfurter.dev/v1/latest?base=EUR&symbols=${c}`,`https://api.frankfurter.app/latest?from=EUR&to=${c}`]){
+      try{ const r=await fetch(u,{cache:'no-store'}); if(!r.ok) continue; const j=await r.json();
+        const v=j?.rates?.[c]??j?.rate??(Array.isArray(j)?j.find(x=>x.quote===c)?.rate:null);
+        if(v){ S.fx[c]={r:+v,f:j.date||today(),src:'Banco Central Europeo (vía Frankfurter)'}; ok=true; break } }catch(e){} } }
+  if(ok){ render(); const dlg=$('#dlg'); if(dlg.open&&dlg.dataset.re) openRE(dlg.dataset.re) }
+}
+async function fxMonthly(cur,from,to){
+  for (const u of [`https://api.frankfurter.dev/v1/${from}..${to}?base=EUR&symbols=${cur}`,`https://api.frankfurter.app/${from}..${to}?from=EUR&to=${cur}`]){
+    try{ const r=await fetch(u,{cache:'no-store'}); if(!r.ok) continue; const j=await r.json(); const acc={};
+      for (const [d,v] of Object.entries(j.rates||{})){ const m=d.slice(0,7); const x=v[cur]; if(x){ (acc[m]=acc[m]||[]).push(+x) } }
+      const out={}; for (const [m,xs] of Object.entries(acc)) out[m]=xs.reduce((a,b)=>a+b,0)/xs.length; if(Object.keys(out).length) return out }catch(e){} }
+  return {};
+}
+function reSaldo(r,at){ let s=+r.hip_saldo||0; if(!r.hip_fecha) return s; const months=Math.floor(Math.max(0,days(r.hip_fecha,at||today()))/30.44); return Math.max(0,s-(+r.hip_amort||0)*months) }
+function reFlows(id){ return (S.reflows||[]).filter(x=>x.re===id).sort((a,b)=>a.f<b.f?-1:1) }
+function reCalc(r){
+  const fx=fxRate(r); const live=!!(S.fx&&S.fx[r.divisa]);
+  const val=+r.valor||0, hip=reSaldo(r), neto=val-hip; const fl=reFlows(r.id);
+  const apor=fl.filter(x=>x.tipo==='aportacion'), otros=fl.filter(x=>x.tipo==='otros'), cob=fl.filter(x=>x.tipo==='cobro');
+  const A=apor.reduce((s,m)=>s+(+m.eur||0),0), AL=apor.reduce((s,m)=>s+(+m.local||0),0), O=otros.reduce((s,m)=>s+(+m.local||0),0);
+  const C=cob.reduce((s,m)=>s+(+m.eur||0),0), CL=cob.reduce((s,m)=>s+(+m.local||0),0);
+  const netoE=fx?neto/fx:0;
+  const x=xirr(apor.map(m=>({f:m.f,v:-(+m.eur)})).concat(cob.map(m=>({f:m.f,v:+m.eur}))).concat([{f:today(),v:netoE}]));
+  const c12=cob.filter(m=>days(m.f,today())<=365).reduce((s,m)=>s+(+m.eur||0),0);
+  const coste=+r.coste_local||0;
+  return {fx,live,val,hip,neto,netoE,valE:fx?val/fx:0,hipE:fx?hip/fx:0,A,AL,O,C,CL,gan:netoE+C-A,x,c12,apor,cob,otros,fxAvg:A?AL/A:null,coste,plus:val-coste};
+}
+function reTot(){ let inc=0, all=0; for (const r of Object.values(S.re||{})){ const c=reCalc(r); all+=c.netoE; if(r.incluir!=='no') inc+=c.netoE } return {inc,all,n:Object.keys(S.re||{}).length} }
+const _totals0=totals;
+totals=function(){ const t=_totals0(); const R=reTot(); t.re=R; t.activos+=R.inc; t.neto+=R.inc; return t };
+function reRows(t){ const tot=t.activos||1; return Object.values(S.re||{}).map(r=>{ const c=reCalc(r); const inc=r.incluir!=='no';
+  return `<div class="row tap" data-re="${esc(r.id)}"><span class="dot" style="background:${RECOL}"></span><span class="row-m"><b>Inmuebles (tu parte neta)</b><small>${esc(r.nombre)} · ${inc?pctTxt(c.netoE/tot)+' del total':'no cuenta en el total'}</small></span><span class="row-r num">${eur(c.netoE)}</span></div>` }).join('') }
+document.addEventListener('click',e=>{ if(e.target.closest('[data-xi]')) return; const r=e.target.closest('[data-re]'); if(r) openRE(r.dataset.re) });
+
+function openRE(id){
+  const r=S.re[id]; if(!r) return; const c=reCalc(r); const dlg=$('#dlg'); dlg.dataset.re=id; const cur=r.divisa||'EUR';
+  const fxTxt=c.fx?String(Math.round(c.fx*10000)/10000).replace('.',','):'—';
+  const scen=c.fx?[[1.1,'Real −10 %'],[1,'Hoy'],[0.9,'Real +10 %']].map(([k,l])=>({l:`${l} (${String(Math.round(c.fx*k*100)/100).replace('.',',')})`,v:c.neto/(c.fx*k)})):[];
+  const maxS=Math.max(...scen.map(s=>s.v),1);
+  const fl=reFlows(id).slice().reverse();
+  dlg.innerHTML=`<div class="pd-top"><button class="iconbtn" data-close aria-label="Cerrar">${ICON.back}</button><span></span></div>
+  <div class="pd">
+    <div class="pd-h"><span class="av big" style="background:${RECOL};color:#0A0C11">${esc((r.nombre||'?').slice(0,2).toUpperCase())}</span><div><div class="pd-n">${esc(r.nombre)}</div><div class="pd-s">${esc(r.ubicacion||'')} · ${esc(r.uso||'inmueble')} · en ${cur}</div></div></div>
+    <div class="pd-v num"${xi('re_neto',{c,cur})}>${eur(c.netoE)}</div>
+    <div class="pd-g"><span${xi('re_neto',{c,cur})}>Tu parte neta · ${loc(c.neto,cur)}</span> · <span${xi('re_fx',{c,cur,r})}>cambio ${fxTxt} ${CURSYM[cur]||cur}/€${c.live?'':' (último guardado)'}</span></div>
+    <div class="bar2" style="margin-top:14px"${xi('re_neto',{c,cur})}><i style="width:${c.val?c.neto/c.val*100:0}%;background:${RECOL}"></i><i style="width:${c.val?c.hip/c.val*100:0}%;background:var(--neg)"></i></div>
+    <div class="fx"><span>Tuyo ${c.val?Math.round(c.neto/c.val*100):0} %</span><span>Hipoteca ${c.val?Math.round(c.hip/c.val*100):0} %</span></div>
+    <div class="card"><div class="tiles">
+      <div class="tile"${xi('re_val',{c,cur,r})}><span>Valor de mercado</span><b class="num">${eur(c.valE)}</b><small>${loc(c.val,cur)}</small></div>
+      <div class="tile"${xi('re_hip',{c,cur,r})}><span>Hipoteca pendiente</span><b class="num neg">−${eur(c.hipE)}</b><small>${loc(c.hip,cur)}</small></div>
+      <div class="tile"${xi('re_apor',{c,cur})}><span>Aportado por ti</span><b class="num">${eur(c.A)}</b><small>${loc(c.AL,cur)}</small></div>
+      <div class="tile"${xi('re_cob',{c,cur})}><span>Cobrado del alquiler</span><b class="num pos">+${eur(c.C)}</b><small>${loc(c.CL,cur)}</small></div>
+      <div class="tile"${xi('re_gan',{c})}><span>Ganancia total</span><b class="num ${c.gan>=0?'pos':'neg'}">${signed(c.gan)}</b></div>
+      <div class="tile"${xi('re_x',{c})}><span>Rentabilidad anual</span><b class="num">${pct(c.x)}</b></div>
+      <div class="tile"${xi('re_c12',{c})}><span>Alquiler neto 12 meses</span><b class="num pos">${eur(c.c12)}</b></div>
+      <div class="tile"${xi('re_plus',{c,cur})}><span>Plusvalía en ${cur==='BRL'?'reales':cur}</span><b class="num ${c.plus>=0?'pos':'neg'}">${c.coste?(c.plus>=0?'+':'')+loc(c.plus,cur):'—'}</b></div>
+    </div></div>
+    ${scen.length?`<div class="card"><div class="card-h"${xi('re_fxs',{c,cur})}>Lo que vale en euros si cambia el ${cur==='BRL'?'real':cur} <span class="ib">${ICON.info}</span></div>${scen.map((s,i)=>`<div class="hbar"><span class="hb-l">${s.l}</span><span class="hb-t"><i style="width:${s.v/maxS*100}%;background:${i===0?'var(--neg)':i===1?RECOL:'var(--pos)'}"></i></span><span class="hb-v num">${eur(s.v)}</span></div>`).join('')}</div>`:''}
+    <div class="card"><div class="card-h">Actualizar</div>
+      <label class="btn wide" style="cursor:pointer">Leer mi Excel del alquiler<input type="file" accept=".xlsx,.xlsm" hidden data-reimp="${esc(id)}"></label>
+      <p class="hint">Elige tu Excel de seguimiento del alquiler (puedes abrirlo desde OneDrive en el selector de archivos). La app lee el saldo de la hipoteca y lo que deja el alquiler cada mes. El archivo no sale de tu móvil.</p>
+      <div class="btns"><button class="btn ghost" data-reflow="${esc(id)}">Añadir movimiento</button><button class="btn ghost" data-reincl="${esc(id)}">${r.incluir!=='no'?'No contar en el total':'Contar en el total'}</button></div></div>
+    ${clavesCard(r)}
+    <details class="card edit"><summary>Movimientos <small>${fl.length}</small></summary>${fl.map(m=>`<div class="row"${xi('re_mov',{m,cur})}><span class="row-m"><b class="wrap">${m.tipo==='aportacion'?'Aportación tuya':m.tipo==='cobro'?'Alquiler cobrado (neto)':'Aportación de otra persona'}</b><small class="w">${sdate(m.f)}${m.fia&&m.fia!=='Dato'?' · '+esc(m.fia):''}${m.nota?' · '+esc(m.nota):''}</small></span><span class="row-r num ${m.tipo==='cobro'&&+m.eur<0?'neg':''}">${m.tipo==='otros'?loc(+m.local,cur):eur(+m.eur,2)}<small>${m.tipo!=='otros'&&m.local?loc(+m.local,cur):''}</small></span></div>`).join('')||'<div class="empty">Sin movimientos.</div>'}</details>
+    <details class="card edit"><summary>Editar datos del inmueble</summary>
+      <form id="fre">
+        <label class="fl">Valor de mercado (${cur})<input type="number" inputmode="decimal" step="1" name="valor" value="${r.valor??''}"></label>
+        <label class="fl">Fecha de esa valoración<input type="date" name="valor_fecha" value="${r.valor_fecha||''}"></label>
+        <label class="fl">De dónde sale el valor<input name="valor_fuente" value="${esc(r.valor_fuente||'')}"></label>
+        <label class="fl">Saldo de la hipoteca (${cur})<input type="number" inputmode="decimal" step="0.01" name="hip_saldo" value="${r.hip_saldo??''}"></label>
+        <label class="fl">Fecha de ese saldo<input type="date" name="hip_fecha" value="${r.hip_fecha||''}"></label>
+        <label class="fl">Cuánto baja la hipoteca al mes (${cur}, aprox.)<input type="number" inputmode="decimal" step="0.01" name="hip_amort" value="${r.hip_amort??''}"></label>
+        <label class="fl">Coste total de compra y reforma (${cur})<input type="number" inputmode="decimal" step="0.01" name="coste_local" value="${r.coste_local??''}"></label>
+        <label class="fl">Tipo de cambio de reserva (${CURSYM[cur]||cur} por €)<input type="number" inputmode="decimal" step="0.0001" name="fx_manual" value="${r.fx_manual??''}"></label>
+        <label class="fl">Lo que debes vigilar (un punto por línea)<textarea name="claves" rows="5">${esc(r.claves||'')}</textarea></label>
+        <button class="btn wide">Guardar cambios</button></form></details>
+  </div>`;
+  openSheet(dlg); dlg.scrollTop=0; renderDocs(r);
+  if(!dlg._reh){ dlg._reh=1; dlg.addEventListener('close',()=>{ delete dlg.dataset.re }) }
+  $('#fre',dlg).onsubmit=e=>{ e.preventDefault(); const f=new FormData(e.target); const before=`${loc(r.valor,cur)} · hipoteca ${loc(r.hip_saldo,cur)}`;
+    ['valor','hip_saldo','hip_amort','coste_local','fx_manual'].forEach(k=>r[k]=f.get(k)===''?null:+f.get(k)); ['valor_fecha','hip_fecha','valor_fuente'].forEach(k=>r[k]=String(f.get(k)||'')); r.claves=String(f.get('claves')||'').trim();
+    logChange('Editar inmueble','inmueble',r.id,r.nombre,`${before} → ${loc(r.valor,cur)} · hipoteca ${loc(r.hip_saldo,cur)}`); schedule(); render(); openRE(id); toast('Cambios guardados') };
+}
+function openREFlow(id){
+  const r=S.re[id]; const sh=$('#sheet'); const cur=r.divisa||'EUR';
+  sh.innerHTML=`<div class="grab"></div><div class="sh-b"><div class="sh-t">${esc(r.nombre)}</div><div class="sh-v" style="font-size:26px">Añadir movimiento</div>
+    <form id="frf"><label class="fl">Tipo<select name="tipo"><option value="aportacion">Dinero que pones tú (euros que envías)</option><option value="cobro">Alquiler cobrado (lo que sobra tras gastos)</option><option value="otros">Dinero que pone otra persona</option></select></label>
+    <label class="fl">Fecha<input type="date" name="f" value="${today()}" required></label>
+    <label class="fl">Importe en euros<input type="number" inputmode="decimal" step="0.01" name="eur"></label>
+    <label class="fl">Importe en ${cur}<input type="number" inputmode="decimal" step="0.01" name="local"></label>
+    <label class="fl">Nota (opcional)<input name="nota"></label>
+    <p class="hint">Rellena al menos uno de los dos importes: el otro se calcula con el tipo de cambio de hoy.</p>
+    <button class="btn wide">Guardar</button><button type="button" class="btn ghost wide" data-close>Cancelar</button></form></div>`;
+  openSheet(sh);
+  $('#frf',sh).onsubmit=e=>{ e.preventDefault(); const f=new FormData(e.target); const fx=fxRate(r)||1; let E=f.get('eur')===''?null:+f.get('eur'), L=f.get('local')===''?null:+f.get('local');
+    if(E==null&&L==null){ toast('Pon un importe'); return } if(E==null) E=L/fx; if(L==null) L=E*fx;
+    S.reflows=S.reflows||[]; S.reflows.push({re:id,f:f.get('f'),tipo:f.get('tipo'),eur:Math.round(E*100)/100,local:Math.round(L*100)/100,fia:'Dato',fuente:'Manual',nota:f.get('nota')||''});
+    logChange('Movimiento de inmueble','inmueble',id,r.nombre,`${f.get('tipo')} · ${eur(E,2)}`,{f:f.get('f'),importe:E}); schedule(); sh.close(); render(); openRE(id); toast('Movimiento guardado') };
+}
+document.addEventListener('click',e=>{ const a=e.target.closest('[data-reflow]'); if(a){ openREFlow(a.dataset.reflow); return }
+  const b=e.target.closest('[data-reincl]'); if(b){ const r=S.re[b.dataset.reincl]; r.incluir=r.incluir==='no'?'sí':'no'; logChange(r.incluir==='no'?'Inmueble fuera del total':'Inmueble dentro del total','inmueble',r.id,r.nombre,''); schedule(); render(); openRE(r.id) } });
+async function importRentExcel(r,file){
+  const wb=XLSX.read(await file.arrayBuffer(),{type:'array'}); const hoja=r.imp_hoja||'Inmobiliario'; const ws=wb.Sheets[hoja]; if(!ws) throw new Error('Este Excel no tiene la hoja '+hoja);
+  const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:true}); const norm=s=>String(s??'').replace(/\s+/g,' ').trim().toLowerCase();
+  const kS=norm(r.imp_saldo||'saldo'), kL=norm(r.imp_neto||'ingreso limpio'); const hi=rows.findIndex(rw=>rw&&rw.some(c=>norm(c)==='fecha')&&rw.some(c=>norm(c)===kS)); if(hi<0) throw new Error('No encuentro las columnas de fecha y saldo');
+  const H=rows[hi].map(norm); const cF=H.indexOf('fecha'), cS=H.indexOf(kS), cL=H.indexOf(kL);
+  const ym=v=>{ if(typeof v==='number'){ const d=new Date(Math.round((v-25569)*864e5)); return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}` } if(v instanceof Date) return `${v.getFullYear()}-${String(v.getMonth()+1).padStart(2,'0')}`; const m=String(v||'').match(/(\d{4})-(\d{2})/); return m?`${m[1]}-${m[2]}`:null };
+  const curM=today().slice(0,7);
+  const data=rows.slice(hi+1).map(rw=>rw&&({m:ym(rw[cF]),s:+rw[cS]||0,l:cL>=0?(+rw[cL]||0):0})).filter(x=>x&&x.m&&x.m<curM&&x.s>0);
+  if(!data.length) throw new Error('No hay meses completos con saldo');
+  const last=data[data.length-1]; const prev=data.filter(x=>x.m<=last.m).slice(-7);
+  r.hip_saldo=Math.round(last.s*100)/100; r.hip_fecha=last.m+'-01';
+  if(prev.length>1){ const dm=(prev[0].s-last.s)/(prev.length-1); if(dm>0) r.hip_amort=Math.round(dm*100)/100 }
+  let n=0;
+  if (cL>=0){ const from=r.cobro_desde||'2024-06'; const cs=data.filter(x=>x.m>=from&&x.l);
+    const fxm=cs.length?await fxMonthly(r.divisa,cs[0].m+'-01',last.m+'-28'):{}; const old={}; reFlows(r.id).filter(x=>x.tipo==='cobro').forEach(x=>old[x.f.slice(0,7)]=x);
+    S.reflows=(S.reflows||[]).filter(x=>!(x.re===r.id&&x.tipo==='cobro'));
+    for (const x of cs){ const o=old[x.m]; const fx=fxm[x.m]||(o&&o.local&&o.eur?o.local/o.eur:null)||fxRate(r)||1;
+      S.reflows.push({re:r.id,f:x.m+'-15',tipo:'cobro',eur:Math.round(x.l/fx*100)/100,local:Math.round(x.l*100)/100,fia:fxm[x.m]?'Dato':'Estimado',fuente:'Excel del alquiler',nota:fxm[x.m]?`cambio medio del mes ${String(Math.round(fx*100)/100).replace('.',',')}`:'cambio aproximado'}); n++ } }
+  logChange('Leer Excel del alquiler','inmueble',r.id,r.nombre,`Hipoteca ${loc(r.hip_saldo,r.divisa)} a ${last.m} · ${n} meses de alquiler`,{origen:'Importación'});
+  return {n,m:last.m};
+}
+document.addEventListener('change',async e=>{ const i=e.target.closest('[data-reimp]'); if(!i) return; const r=S.re[i.dataset.reimp]; const file=i.files[0]; i.value=''; if(!file) return;
+  try{ toast('Leyendo tu Excel…'); const res=await importRentExcel(r,file); schedule(); render(); openRE(r.id); toast(`Actualizado hasta ${res.m} · ${res.n} meses de alquiler`) }catch(err){ toast(err.message||'No se ha podido leer el Excel') } });
+
+function explain5(key,c){
+  const T=(t,v,what,you,tip)=>({t,v,what,you,tip}); const cur=c?.cur||'BRL'; const fxs=c?.c?.fx?String(Math.round(c.c.fx*10000)/10000).replace('.',','):'—';
+  switch(key){
+    case 're_neto': return T('Tu parte neta del piso',eur(c.c.netoE),'Lo que es realmente tuyo: lo que vale el piso menos lo que aún debes de hipoteca, pasado a euros.',`${loc(c.c.val,cur)} − ${loc(c.c.hip,cur)} = ${loc(c.c.neto,cur)}.<br>Al cambio de ${fxs}: <b>${eur(c.c.netoE)}</b>.`,'El valor es una estimación de mercado, no una tasación. La hipoteca está en reales, por eso no aparece en la pestaña Deuda: aquí ya está restada.');
+    case 're_fx': return T('Tipo de cambio',fxs,'Cuántas unidades de la moneda del piso compras con 1 €. Si sube, tu piso vale menos en euros.',c.c.live?`Hoy: <b>${fxs}</b> (${esc(S.fx[c.r.divisa].src)}, ${fdate(S.fx[c.r.divisa].f)}).`:`No se ha podido consultar ahora: se usa el último guardado, <b>${fxs}</b>.`,'La app lo consulta cada vez que la abres. Solo envía qué monedas quieres, nada tuyo.');
+    case 're_val': return T('Valor de mercado',eur(c.c.valE),'Por cuánto se podría vender hoy, según la estimación que tengas guardada.',`${loc(c.c.val,cur)}${c.r.valor_fecha?' a '+fdate(c.r.valor_fecha):''}${c.r.valor_fuente?' · '+esc(c.r.valor_fuente):''}.`,'Actualízalo en "Editar" si tienes una tasación o ventas parecidas en el edificio. Vender tiene costes (comisión e impuestos) que aquí no se restan.');
+    case 're_hip': return T('Hipoteca pendiente',eur(c.c.hipE),'Lo que te queda por devolver al banco.',`${loc(c.c.hip,cur)}. Último dato: ${loc(+c.r.hip_saldo,cur)} a ${fdate(c.r.hip_fecha)}; desde ahí la app resta unos ${loc(+c.r.hip_amort||0,cur,2)} al mes.`,'Si tu hipoteca se actualiza con un índice, el saldo baja más despacio que lo que dice la cuota. Léelo de tu Excel para tener el dato real.');
+    case 're_apor': return T('Aportado por ti',eur(c.c.A),'Los euros que has puesto de tu bolsillo en el piso (envíos desde España).',`${c.c.apor.length} envíos: <b>${eur(c.c.A)}</b>, que se convirtieron en ${loc(c.c.AL,cur)} (cambio medio ${c.c.fxAvg?String(Math.round(c.c.fxAvg*100)/100).replace('.',','):'—'}).${c.c.O?`<br>Además, otra persona puso ${loc(c.c.O,cur)}: no cuenta como tuyo.`:''}`,'Desde que el alquiler paga la hipoteca, ya no hace falta poner dinero.');
+    case 're_cob': return T('Cobrado del alquiler',eur(c.c.C),'Lo que ha dejado el alquiler después de pagar hipoteca y gastos. Aunque lo hayas gastado, es rentabilidad que ya has cobrado.',`${loc(c.c.CL,cur)} ≈ <b>${eur(c.c.C)}</b>, cada mes a su tipo de cambio.`,'Antes de impuestos: no resta lo que pagas en el país del inmueble ni lo que puedas tener que declarar en España.');
+    case 're_gan': return T('Ganancia total',signed(c.c.gan),'Lo que has ganado con el piso: lo que vale tu parte hoy más lo cobrado del alquiler, menos lo que pusiste.',`${eur(c.c.netoE)} + ${eur(c.c.C)} − ${eur(c.c.A)} = <b>${signed(c.c.gan)}</b>`,'En euros: incluye el efecto del tipo de cambio.');
+    case 're_x': return T('Rentabilidad anual del piso',pct(c.c.x),'Cuánto ha crecido tu dinero de media cada año, teniendo en cuenta cuándo pusiste cada euro y cuándo cobraste cada mes (XIRR).',`<b>${pctTxt(c.c.x)} al año</b> desde tu primer envío.`,'Antes de impuestos y sin costes de una posible venta. Usa el valor estimado del piso.');
+    case 're_c12': return T('Alquiler neto en 12 meses',eur(c.c.c12),'Lo que te ha dejado el alquiler en el último año, después de hipoteca y gastos.',`<b>${eur(c.c.c12)}</b>${c.c.A?`: un ${pctTxt(c.c.c12/c.c.A)} de lo que pusiste.`:''}`,'');
+    case 're_plus': return T('Plusvalía en la moneda local',c.c.coste?loc(c.c.plus,cur):'—','Cuánto vale más (o menos) el piso de lo que costó comprarlo y reformarlo, sin contar el tipo de cambio.',c.c.coste?`${loc(c.c.val,cur)} − ${loc(c.c.coste,cur)} = <b>${loc(c.c.plus,cur)}</b>`:'Falta el coste total en "Editar".','Si vendes, se paga impuesto sobre esta ganancia; consúltalo antes.');
+    case 're_fxs': return T('Riesgo de tipo de cambio','','Tu piso está en otra moneda: aunque en reales valga lo mismo, en euros sube o baja con el tipo de cambio.',`Hoy ${eur(c.c.netoE)}. Con el real un 10 % más débil: ${eur(c.c.neto/(c.c.fx*1.1))}; un 10 % más fuerte: ${eur(c.c.neto/(c.c.fx*0.9))}.`,'');
+    case 're_mov': return T(c.m.tipo==='aportacion'?'Aportación tuya':c.m.tipo==='cobro'?'Alquiler cobrado':'Aportación de otra persona',c.m.tipo==='otros'?loc(+c.m.local,cur):eur(+c.m.eur,2),c.m.tipo==='cobro'?'Lo que dejó el alquiler ese mes tras hipoteca y gastos (puede ser negativo).':'Dinero puesto en el piso.',`${fdate(c.m.f)} · ${loc(+c.m.local,cur,2)}${c.m.eur?' · '+eur(+c.m.eur,2):''}. Fuente: ${esc(c.m.fuente||'—')}${c.m.nota?' · '+esc(c.m.nota):''}.`,c.m.fia&&c.m.fia!=='Dato'?FIA[c.m.fia]||'':'');
   }
   return null;
 }
