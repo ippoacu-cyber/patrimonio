@@ -46,7 +46,7 @@ svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-l
 .sync b{width:8px;height:8px;border-radius:50%;background:var(--warn);flex:none}
 .sync.ok b{background:var(--pos)}
 main{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:6px 14px 24px}
-.tabbar{flex:none;display:grid;grid-template-columns:repeat(6,1fr);background:var(--surface);border-top:1px solid var(--line);padding:6px 6px calc(6px + env(safe-area-inset-bottom,0px))}
+.tabbar{flex:none;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));background:var(--surface);border-top:1px solid var(--line);padding:6px 6px calc(6px + env(safe-area-inset-bottom,0px))}
 .tb{border:0;background:none;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 0;color:var(--muted);font-size:10.5px;min-width:0;font-weight:600;cursor:pointer}
 .tb[aria-selected="true"]{color:var(--accent)}
 .tb.add span{width:44px;height:44px;margin-top:-4px;border-radius:50%;background:linear-gradient(135deg,#5B8CFF,#8B6CFF);box-shadow:0 6px 18px rgba(91,140,255,.35);color:#fff;display:grid;place-items:center}
@@ -256,6 +256,15 @@ details.kw .hbar{grid-template-columns:minmax(0,1fr) auto auto;gap:10px}
 .check{display:flex;gap:10px;align-items:center;font-size:14px;margin:10px 0}
 .check input{width:18px;height:18px;accent-color:var(--accent)}
 input,select,textarea{background:var(--surface-2)!important;color:var(--ink)!important;border-color:var(--line)!important}
+
+/* ---- v4 ---- */
+.tb{font-size:10px;letter-spacing:-.01em}
+.tb svg{width:22px;height:22px}
+.tb.add span{width:42px;height:42px}
+.pill.ok{background:rgba(47,208,143,.14);color:var(--pos);border:0;font-size:12px;padding:5px 10px;border-radius:999px;margin-left:auto}
+.btn.danger.sm{background:none;color:var(--neg);box-shadow:inset 0 0 0 1px rgba(255,107,107,.35)}
+.row-r small{display:block;text-align:right}
+.row-m small.w{white-space:normal;overflow:visible}
 </style>
 </head>
 <body>
@@ -268,6 +277,7 @@ input,select,textarea{background:var(--surface-2)!important;color:var(--ink)!imp
     <section id="anadir" hidden></section>
     <section id="analisis" hidden></section>
     <section id="historico" hidden></section>
+    <section id="deuda" hidden></section>
     <section id="mas" hidden></section>
   </main>
   <nav class="tabbar" aria-label="Secciones">
@@ -275,6 +285,7 @@ input,select,textarea{background:var(--surface-2)!important;color:var(--ink)!imp
     <button class="tb" data-tab="activos"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 3v9l7 4.5"/></svg>Activos</button>
     <button class="tb add" data-tab="anadir" aria-label="Añadir"><span><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span></button>
     <button class="tb" data-tab="analisis"><svg viewBox="0 0 24 24"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>Análisis</button>
+    <button class="tb" data-tab="deuda"><svg viewBox="0 0 24 24"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>Deuda</button>
     <button class="tb" data-tab="historico"><svg viewBox="0 0 24 24"><path d="M4 19h16M6 15l4-5 4 3 5-7"/></svg>Histórico</button>
     <button class="tb" data-tab="mas"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>Más</button>
   </nav>

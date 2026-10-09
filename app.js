@@ -155,6 +155,7 @@ async function load(){
     touch(); hideGate(); $('#who').textContent=ACCOUNT.username||'';
     await pull();
     loopCount(true);
+    try{ if(processDebtCharges()) render() }catch(e){ dlog('Cargos préstamo: '+e.message) }
     fetchIPC();
   }catch(e){ dlog('Error general: '+(e.errorCode||'')+' '+String(e.message||'').slice(0,120)); showGate('No se ha podido conectar con OneDrive ('+(e.errorCode||e.message||'error')+'). Vuelve a intentarlo.') }
 }
@@ -241,8 +242,9 @@ const FIA = {'Dato':'sale de un documento oficial (extracto, certificado o infor
 const CATTXT = {
   'Inversión':'Dinero puesto en cosas que suben y bajan de precio: fondos, ETF, acciones, cripto, metales o seguros de inversión. A largo plazo suele ganar más que una cuenta, pero puede perder valor.',
   'Efectivo invertido':'Dinero en cuentas remuneradas y depósitos. No baja de valor y te paga un interés, pero normalmente gana menos de lo que suben los precios.',
-  'Efectivo':'Dinero en cuentas corrientes normales que no pagan nada. Es útil para el día a día, pero cada año compra un poco menos por culpa de la inflación.'};
+  'Efectivo':'Efectivo libre: dinero en cuentas que no pagan nada, disponible para gastar o para invertir. Es útil para el día a día, pero cada año compra un poco menos por culpa de la inflación.'};
 function explain(key,c){
+  const _r4=explain4(key,c); if(_r4) return _r4;
   const _r3=explain3(key,c); if(_r3) return _r3;
   const _r2=explain2(key,c); if(_r2) return _r2;
   if (key==='log') return {t:c.accion,v:c.importe!==''&&c.importe!=null?eur(+c.importe,2):'',what:`${esc(c.nombre||'')}${c.detalle?': '+esc(c.detalle):''}`,you:`Registrado el <b>${fdt(c.ts)}</b>${c.fecha_efecto?`, con fecha de efecto ${fdate(c.fecha_efecto)}`:''}.<br>Usuario: ${esc(c.usuario||'—')}<br>Dispositivo: ${esc(c.dispositivo||'—')}<br>Origen: ${esc(c.origen||'App')}${c.antes!==''&&c.antes!=null?`<br>Antes: ${typeof c.antes==='number'?eur(c.antes,2):esc(c.antes)}`:''}${c.despues!==''&&c.despues!=null?` · Después: ${typeof c.despues==='number'?eur(c.despues,2):esc(c.despues)}`:''}`,tip:'La bitácora guarda cada cambio que haces en la app, en la hoja "Bitacora" de tu Excel. Sirve para saber qué cambió, cuándo y desde qué dispositivo.'};
@@ -310,17 +312,17 @@ document.addEventListener('keydown',e=>{ if((e.key==='Enter'||e.key===' ')&&e.ta
 
 /* ---------- navegación ---------- */
 let TAB='inicio';
-const TITLES={inicio:'Inicio',activos:'Activos',anadir:'Añadir',analisis:'Análisis',historico:'Histórico',mas:'Más'};
+const TITLES={inicio:'Inicio',activos:'Activos',anadir:'Añadir',analisis:'Análisis',historico:'Histórico',deuda:'Deuda',mas:'Más'};
 function go(t){ TAB=t; document.querySelectorAll('.tb').forEach(b=>b.setAttribute('aria-selected',b.dataset.tab===t));
   document.querySelectorAll('main section').forEach(s=>s.hidden=s.id!==t); $('#ttl').textContent=TITLES[t];
-  if (t==='anadir') renderAct(); if (t==='historico') renderHist(); if (t==='analisis') renderAnalisis(); if (t==='inicio') setTimeout(()=>drawDonuts($('#inicio')),0); $('main').scrollTop=0 }
+  if (t==='anadir') renderAct(); if (t==='historico') renderHist(); if (t==='analisis') renderAnalisis(); if (t==='deuda') renderDeuda(); if (t==='inicio') setTimeout(()=>drawDonuts($('#inicio')),0); $('main').scrollTop=0 }
 document.querySelectorAll('.tb').forEach(b=>b.onclick=()=>{ if(b.dataset.tab==='anadir') actMode=null; go(b.dataset.tab) });
 
 /* ---------- render ---------- */
 function render(){
 
   const lu=lastUpdate(); $('#asof').textContent = lu ? 'Datos a '+fdate(lu) : 'Sin datos';
-  renderInicio(); renderActivos(); renderHist(); renderAct(); renderMas(); renderAnalisis();
+  renderInicio(); renderActivos(); renderHist(); renderAct(); renderMas(); renderAnalisis(); renderDeuda();
 }
 function noData(){
   if (S.mode==='nuevo') return `<div class="card empty"><b>Tu OneDrive todavía no tiene el Excel de la app.</b><p>Ve a <b>Más › Importar un Excel</b> y elige <b>patrimonio_datos_iniciales.xlsx</b>. Se guardará en OneDrive y desde entonces será tu archivo de trabajo.</p><button class="btn" data-go="mas">Ir a Más</button></div>`;
@@ -361,26 +363,7 @@ function renderMas(){
   const el=$('#mas'); const ds=Object.values(S.debts);
   const tot=ds.reduce((s,d)=>s+loanAt(d).bal,0), cuota=ds.reduce((s,d)=>s+loanAt(d).cuota,0);
   const st=$('#status span')?.textContent||'';
-  el.innerHTML=`<h2 class="h2">Deudas</h2>
-  <div class="card"><div class="tiles">
-    <div class="tile"${xi('deuda',{deuda:tot,n:ds.filter(d=>loanAt(d).bal>0).length,cuota})}><span>Pendiente</span><b class="num neg">${eur(tot)}</b></div>
-    <div class="tile"${xi('cuota_total',{v:cuota})}><span>Cuota al mes</span><b class="num">${eur(cuota,2)}</b></div></div></div>
-  ${ds.map(d=>{const L=loanAt(d);return `<div class="card"><div class="loan-h">${avatar(d.entidad)}<span class="row-m"><b>${esc(d.nombre)}</b><small>${esc(d.entidad)} · <span${xi('l_tin',{d})}>TIN ${String(d.tin).replace('.',',')} %</span></small></span><button class="del" data-deld="${esc(d.id)}" aria-label="Borrar préstamo">×</button></div>
-    <div class="prog"${xi('l_amort',{L,d})}><i style="width:${L.pctAmort*100}%"></i></div>
-    <div class="tiles three">
-      <div class="tile"${xi('l_bal',{L,d})}><span>Pendiente</span><b class="num">${eur(L.bal)}</b></div>
-      <div class="tile"${xi('l_cuota',{L,d:Object.assign({},d,{cuota:L.cuota})})}><span>Cuota</span><b class="num">${eur(L.cuota,2)}</b></div>
-      <div class="tile"${xi('l_rest',{L,d})}><span>Quedan</span><b class="num">${L.restantes}</b></div>
-      <div class="tile"${xi('l_int',{L,d})}><span>Intereses</span><b class="num">${eur(L.intereses)}</b></div>
-      <div class="tile"${xi('l_amort',{L,d})}><span>Devuelto</span><b class="num">${pctTxt(L.pctAmort)}</b></div>
-      <div class="tile"${xi('l_fin',{L,d})}><span>Fin</span><b class="num">${sdate(L.fin)}</b></div></div>
-    <div class="btns"><button class="btn ghost" data-debt="amort" data-did="${esc(d.id)}">Amortizar</button><button class="btn ghost" data-debt="edit" data-did="${esc(d.id)}">Editar</button></div></div>`}).join('')}
-  <details class="card edit"><summary>Añadir préstamo</summary>
-    <form id="fdebt"><label class="fl">Nombre<input name="nombre" required placeholder="Préstamo coche"></label><label class="fl">Entidad<input name="entidad" required></label>
-    <label class="fl">Capital inicial (€)<input name="capital" type="number" inputmode="decimal" step="0.01" required></label><label class="fl">TIN (%)<input name="tin" type="number" inputmode="decimal" step="0.001" required></label>
-    <label class="fl">Cuota (€)<input name="cuota" type="number" inputmode="decimal" step="0.01" required></label><label class="fl">Primera cuota<input name="primerPago" type="date" required></label>
-    <label class="fl">Número de cuotas<input name="n" type="number" inputmode="numeric" required></label><button class="btn wide">Añadir préstamo</button></form></details>
-
+  el.innerHTML=`<p class="hint" style="margin:0 6px 12px">Los préstamos tienen ahora su propia pestaña: Deuda.</p>
   <h2 class="h2">Bitácora de cambios</h2>
   <div class="card">${logRows((S.log||[]).slice(LOGALL?0:-12))}${(S.log||[]).length>12?`<button class="btn ghost wide" id="logall" style="margin-top:10px">${LOGALL?'Ver menos':'Ver los '+S.log.length+' cambios'}</button>`:''}</div>
   <h2 class="h2">Tus datos</h2>
@@ -393,10 +376,8 @@ function renderMas(){
   <div class="card"><div class="card-h">Importar un Excel</div><p class="hint">Sustituye todo por el contenido del archivo y lo guarda en OneDrive.</p><label class="btn ghost wide" style="cursor:pointer">Elegir archivo<input type="file" id="imp" accept=".xlsx" hidden></label><p class="hint" id="impmsg"></p></div>
   <div class="card"><div class="card-h">Importar actualización</div><p class="hint">Añade cuentas o productos nuevos, completa datos (interés, riesgo, puntos a vigilar…) y divide productos (p. ej. un fondo en sus subfondos) sin borrar nada de lo que ya tienes.</p><label class="btn ghost wide" style="cursor:pointer">Elegir archivo<input type="file" id="impu" accept=".xlsx" hidden></label><p class="hint" id="impumsg"></p></div>
   <div class="card"><div class="card-h">Importar clasificación</div><p class="hint">Añade riesgo, regiones, sectores, monedas y costes a tus productos desde un Excel, sin tocar movimientos ni valores.</p><label class="btn ghost wide" style="cursor:pointer">Elegir archivo<input type="file" id="impc" accept=".xlsx" hidden></label><p class="hint" id="impcmsg"></p></div>
-  <details class="card edit"><summary>Ajustes</summary><form id="fcfg"><label class="fl">Inflación de referencia (%)<input type="number" inputmode="decimal" step="0.1" name="ipc" value="${S.cfg.ipc}"></label><label class="fl">Pérdidas de años anteriores pendientes de compensar (€)<input type="number" inputmode="decimal" step="0.01" name="perd" value="${S.cfg.perdidas??''}"></label><label class="fl">S&amp;P 500 en lo que va de año (%)<input type="number" inputmode="decimal" step="0.01" name="sp" value="${S.cfg.sp500??''}"></label><label class="fl">Fuente y fecha del dato del S&amp;P 500<input name="spref" value="${esc(S.cfg.sp500ref||'')}"></label><label class="fl">Avisos (uno por línea)<textarea name="avisos" rows="5">${esc((S.cfg.avisos||[]).join('\n'))}</textarea></label><button class="btn wide">Guardar ajustes</button></form></details>
+  <details class="card edit"><summary>Ajustes</summary><form id="fcfg"><label class="fl">Inflación de referencia (%)<input type="number" inputmode="decimal" step="0.1" name="ipc" value="${S.cfg.ipc}"></label><label class="fl">Pérdidas de años anteriores pendientes de compensar (€)<input type="number" inputmode="decimal" step="0.01" name="perd" value="${S.cfg.perdidas??''}"></label><label class="fl">S&amp;P 500 en lo que va de año (%)<input type="number" inputmode="decimal" step="0.01" name="sp" value="${S.cfg.sp500??''}"></label><label class="fl">Fuente y fecha del dato del S&amp;P 500<input name="spref" value="${esc(S.cfg.sp500ref||'')}"></label><label class="fl">MSCI World en lo que va de año (%)<input type="number" inputmode="decimal" step="0.01" name="msci" value="${S.cfg.msci??''}" placeholder="${String(MSCI_YTD.v).replace('.',',')}"></label><label class="fl">Fuente y fecha del dato del MSCI World<input name="mscref" value="${esc(S.cfg.mscref||'')}" placeholder="${esc(MSCI_YTD.ref)}"></label><label class="fl">Año de las pérdidas pendientes<input type="number" inputmode="numeric" name="pano" value="${S.cfg.perdidasAno??2023}"></label><label class="fl">Avisos (uno por línea)<textarea name="avisos" rows="5">${esc((S.cfg.avisos||[]).join('\n'))}</textarea></label><button class="btn wide">Guardar ajustes</button></form></details>
   <button class="btn wide danger" id="out">Cerrar sesión</button>`;
-  el.querySelectorAll('[data-deld]').forEach(b=>b.onclick=async()=>{ if(!confirm('¿Borrar este préstamo?'))return; logChange('Borrar préstamo','deuda',b.dataset.deld,S.debts[b.dataset.deld]?.nombre||''); delete S.debts[b.dataset.deld]; await remove('d',b.dataset.deld); render(); toast('Préstamo borrado') });
-  $('#fdebt').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target);const d={id:uid(),nombre:f.get('nombre'),entidad:f.get('entidad'),capital:+f.get('capital'),tin:+f.get('tin'),cuota:+f.get('cuota'),primerPago:f.get('primerPago'),n:+f.get('n')};S.debts[d.id]=d; logChange('Nuevo préstamo','deuda',d.id,d.nombre,`${eur(d.capital)} · TIN ${d.tin} %`,{importe:d.capital}); await persist('d',d);render();toast('Préstamo añadido')};
   $('#reload').onclick=()=>{ if(dirty&&!confirm('Hay cambios sin guardar. ¿Recargar igualmente?'))return; pull().catch(()=>toast('No se ha podido leer OneDrive')) };
   $('#exp').onclick=()=>{ const u=URL.createObjectURL(new Blob([workbookFromState()])); const a=document.createElement('a'); a.href=u; a.download=`patrimonio_${today()}.xlsx`; a.click(); setTimeout(()=>URL.revokeObjectURL(u),5000) };
   $('#out').onclick=logout;
@@ -418,7 +399,7 @@ function renderMas(){
       if(!confirm(`Se sustituirán tus datos por ${Object.keys(st.prod).length} productos. ¿Continuar?`)) return;
       S.prod=st.prod; S.debts=st.debts; S.cfg=st.cfg; S.log=(st.log&&st.log.length?st.log:S.log)||[]; logChange('Importar Excel completo','datos','',file.name,`${Object.keys(st.prod).length} productos`,{origen:'Importación'}); render(); await push(true); toast('Datos importados y guardados en OneDrive');
     }catch(e){ msg.textContent='No se ha podido leer el archivo. Usa un Excel exportado desde la app.' } ev.target.value='' };
-  $('#fcfg').onsubmit=e=>{e.preventDefault(); const f=new FormData(e.target); S.cfg.ipc=+f.get('ipc'); S.cfg.perdidas=f.get('perd')===''?null:+f.get('perd'); S.cfg.sp500=f.get('sp')===''?null:+f.get('sp'); S.cfg.sp500ref=String(f.get('spref')||'').trim(); S.cfg.avisos=String(f.get('avisos')).split('\n').map(s=>s.trim()).filter(Boolean); logChange('Cambiar ajustes','ajustes','','',`Inflación ${S.cfg.ipc} % · ${S.cfg.avisos.length} avisos`); schedule(); render(); toast('Ajustes guardados')};
+  $('#fcfg').onsubmit=e=>{e.preventDefault(); const f=new FormData(e.target); S.cfg.ipc=+f.get('ipc'); S.cfg.msci=f.get('msci')===''?null:+f.get('msci'); S.cfg.mscref=String(f.get('mscref')||'').trim(); S.cfg.perdidasAno=f.get('pano')===''?null:+f.get('pano'); S.cfg.perdidas=f.get('perd')===''?null:+f.get('perd'); S.cfg.sp500=f.get('sp')===''?null:+f.get('sp'); S.cfg.sp500ref=String(f.get('spref')||'').trim(); S.cfg.avisos=String(f.get('avisos')).split('\n').map(s=>s.trim()).filter(Boolean); logChange('Cambiar ajustes','ajustes','','',`Inflación ${S.cfg.ipc} % · ${S.cfg.avisos.length} avisos`); schedule(); render(); toast('Ajustes guardados')};
 }
 
 
@@ -552,7 +533,7 @@ document.addEventListener('click',e=>{
   const pb=e.target.closest('[data-pie]'); if (pb){ pieMode=pb.dataset.pie; renderInicio(); return }
 });
 
-function renderAnalisis(){
+function renderAnalisisBase(){
   const el=$('#analisis'); if (!Object.keys(S.prod).length){ el.innerHTML=noData(); return }
   const k=kpis(); const tile=(key,lab,val,cls='')=>`<div class="tile"${xi(key,k)}><span>${lab}</span><b class="num ${cls}">${val}</b></div>`;
   const prodR=activeProds().filter(p=>p.categoria==='Inversión').map(p=>({p,s:stats(p)})).filter(x=>x.s.pct!=null).sort((a,b)=>b.s.pct-a.s.pct);
@@ -619,7 +600,7 @@ function openDebt(kind,id){
   if (kind==='edit') body=`<label class="fl">Nombre<input name="nombre" value="${esc(d.nombre)}" required></label><label class="fl">Entidad<input name="entidad" value="${esc(d.entidad)}" required></label>
     <label class="fl">Capital inicial (€)<input name="capital" type="number" inputmode="decimal" step="0.01" value="${d.capital}" required></label><label class="fl">TIN (%)<input name="tin" type="number" inputmode="decimal" step="0.001" value="${d.tin}" required></label>
     <label class="fl">Cuota inicial (€)<input name="cuota" type="number" inputmode="decimal" step="0.01" value="${d.cuota}" required></label><label class="fl">Primera cuota<input name="primerPago" type="date" value="${d.primerPago}" required></label>
-    <label class="fl">Número de cuotas<input name="n" type="number" inputmode="numeric" value="${d.n}" required></label><label class="fl">Nota<input name="nota" value="${esc(d.nota||'')}"></label>`;
+    <label class="fl">Número de cuotas<input name="n" type="number" inputmode="numeric" value="${d.n}" required></label><label class="fl">Comisión por cancelar (%)<input name="comision" type="number" inputmode="decimal" step="0.01" value="${d.comision??(typeof comPct==='function'&&comPct(d)?comPct(d):'')}"></label><label class="fl">Cuenta de la que se cobra<select name="cuenta"><option value="">Ninguna (no descontar)</option>${cashProds().map(o=>`<option value="${esc(o.id)}" ${o.id===d.cuenta?'selected':''}>${esc(o.entidad)} — ${esc(o.nombre)}</option>`).join('')}</select></label><label class="fl">Nota<input name="nota" value="${esc(d.nota||'')}"></label>`;
   if (kind==='amort') body=`<p class="hint">Pendiente hoy: <b>${eur(L.bal,2)}</b>. Amortizar es devolver parte del préstamo antes de tiempo.</p>
     <label class="fl">Importe (€)<input name="imp" type="number" inputmode="decimal" step="0.01" required></label><label class="fl">Fecha<input name="f" type="date" value="${today()}" required></label>
     <div class="seg2"><label><input type="radio" name="modo" value="plazo" checked><span>Acortar plazo</span></label><label><input type="radio" name="modo" value="cuota"><span>Bajar cuota</span></label></div>
@@ -631,7 +612,7 @@ function openDebt(kind,id){
   sh.querySelectorAll('[data-dex]').forEach(b=>b.onclick=()=>{ if(!confirm('¿Borrar esta amortización?'))return; const x=d.extras.splice(+b.dataset.dex,1)[0]; logChange('Borrar amortización','deuda',d.id,d.nombre,`${eur(x.imp,2)} del ${fdate(x.f)}`,{f:x.f,importe:x.imp}); schedule(); sh.close(); render(); toast('Amortización borrada') });
   $('#fdeb',sh).onsubmit=e=>{ e.preventDefault(); const f=new FormData(e.target);
     if (kind==='edit'){ const before=`${eur(d.capital)} · TIN ${d.tin} % · ${eur(d.cuota,2)} · ${d.n} cuotas`;
-      Object.assign(d,{nombre:f.get('nombre'),entidad:f.get('entidad'),capital:+f.get('capital'),tin:+f.get('tin'),cuota:+f.get('cuota'),primerPago:f.get('primerPago'),n:+f.get('n'),nota:f.get('nota')});
+      Object.assign(d,{nombre:f.get('nombre'),entidad:f.get('entidad'),capital:+f.get('capital'),tin:+f.get('tin'),cuota:+f.get('cuota'),primerPago:f.get('primerPago'),n:+f.get('n'),nota:f.get('nota'),comision:f.get('comision')===''?null:+f.get('comision')}); if((f.get('cuenta')||'')!==(d.cuenta||'')){ d.cuenta=f.get('cuenta')||''; d.cargado=today() }
       logChange('Editar préstamo','deuda',d.id,d.nombre,`${before} → ${eur(d.capital)} · TIN ${d.tin} % · ${eur(d.cuota,2)} · ${d.n} cuotas`,{antes:before}) }
     else { const before=loanAt(d).bal; d.extras=d.extras||[]; d.extras.push({f:f.get('f'),imp:+f.get('imp'),modo:f.get('modo'),com:+f.get('com')||0}); d.extras.sort((a,b)=>a.f<b.f?-1:1);
       logChange('Amortización anticipada','deuda',d.id,d.nombre,`${f.get('modo')==='cuota'?'Bajar cuota':'Acortar plazo'}${+f.get('com')?' · comisión '+eur(+f.get('com'),2):''}`,{f:f.get('f'),importe:+f.get('imp'),antes:Math.round(before*100)/100,despues:Math.round(loanAt(d).bal*100)/100}) }
@@ -658,41 +639,7 @@ function totals(){
   return {by, ent, activos, deuda, neto:activos-deuda, ext:aport, gan:vInv-aport, x, tv:vInv, cash:by['Efectivo']+by['Efectivo invertido']};
 }
 function invFlow(m){ return m.tipo==='entrada'?m.imp:m.tipo==='salida'?-m.imp:0 }
-function series(){
-  const starts=Object.values(S.prod).map(p=>p.apertura||(p.vals&&p.vals[0]?.f)).filter(Boolean).sort();
-  if (!starts.length) return null;
-  const s=D(starts[0]); const out=[]; const now=today(); const ps=Object.values(S.prod);
-  let d=new Date(s.getFullYear(), s.getMonth()+1, 0);
-  while (true){
-    const iso=d.toISOString().slice(0,10) > now ? now : d.toISOString().slice(0,10);
-    const row={f:iso,'Inversión':0,'Efectivo invertido':0,ext:0,rN:0,rD:0};
-    for (const p of ps){ const v=valueAt(p,iso);
-      if (isInv(p)){ row['Inversión']+=v; for (const m of p.movs||[]) if (m.f<=iso) row.ext+=invFlow(m) } else row['Efectivo invertido']+=v;
-      const r=profile(p).riesgo; if (r && v>0){ row.rN+=r*v; row.rD+=v } }
-    out.push(row);
-    if (iso===now) break;
-    d=new Date(d.getFullYear(), d.getMonth()+2, 0);
-  }
-  return out;
-}
 const SP500={2021:39.07,2022:-13.30,2023:21.54,2024:32.62,2025:3.96};
-function annual(ser){
-  const ys=[...new Set(ser.map(r=>r.f.slice(0,4)))]; const CY=String(new Date().getFullYear());
-  const res=[]; let prevV=0;
-  for (const y of ys){
-    const rows=ser.filter(r=>r.f.startsWith(y)); const last=rows[rows.length-1]; const V=last['Inversión'];
-    const flows=[]; for (const p of Object.values(S.prod)) if (isInv(p)) for (const m of p.movs||[]) if (m.f.startsWith(y) && invFlow(m)) flows.push(m);
-    const ext=flows.reduce((s,m)=>s+invFlow(m),0);
-    const end=last.f, start=`${y}-01-01`; const T=Math.max(1,days(start,end));
-    const W=flows.reduce((s,m)=>s+invFlow(m)*Math.max(0,days(m.f,end))/T,0);
-    const gan=V-prevV-ext; const base=prevV+W;
-    const rk=rows.filter(r=>r.rD>0).map(r=>r.rN/r.rD); const riesgo=rk.length?rk.reduce((a,b)=>a+b,0)/rk.length:null;
-    const sp = y===CY ? (S.cfg.sp500!=null&&S.cfg.sp500!==''?+S.cfg.sp500:null) : (SP500[y]!=null?SP500[y]:null);
-    res.push({y, V0:prevV, ext, V, gan, r: base>100? gan/base : null, parcial:y===CY, riesgo, sp: sp==null?null:sp/100, cashEnd:last['Efectivo invertido']});
-    prevV=V;
-  }
-  return res;
-}
 /* --- inflación del día (INE) --- */
 async function fetchIPC(){
   const series=['IPC251852','IPC290750','IPC251856'];
@@ -736,8 +683,8 @@ function openCash(){
     <button class="btn wide" data-saldos>Actualizar saldos</button>
     <div class="card"><div class="card-h">Evolución del efectivo</div><div class="chartbox sm"><canvas id="cashchart"></canvas></div></div>
     <div class="card"><div class="tiles">
-      <div class="tile"${xi('cat',{cat:'Efectivo',v:ef,share:tot?ef/tot:0})}><span>Cuentas corrientes</span><b class="num">${eur(ef)}</b></div>
-      <div class="tile"${xi('cat',{cat:'Efectivo invertido',v:ei,share:tot?ei/tot:0})}><span>Cuentas remuneradas</span><b class="num">${eur(ei)}</b></div>
+      <div class="tile"${xi('cat',{cat:'Efectivo',v:ef,share:tot?ef/tot:0})}><span>Efectivo libre</span><b class="num">${eur(ef)}</b></div>
+      <div class="tile"${xi('cat',{cat:'Efectivo invertido',v:ei,share:tot?ei/tot:0})}><span>Efectivo invertido</span><b class="num">${eur(ei)}</b></div>
       <div class="tile"${xi('ipc_now',{})}><span>Inflación hoy</span><b class="num">${String(ipc).replace('.',',')} %</b></div>
       <div class="tile"${xi('cash_real',{v:yearLoss,tot})}><span>Poder de compra al año</span><b class="num ${yearLoss>=0?'pos':'neg'}">${signed(yearLoss)}</b></div>
     </div></div>
@@ -784,7 +731,7 @@ function openAction(kind,id){
     <label class="fl">¿A qué cuenta va?<select name="cta" required>${cashOpts()}</select></label>
     <label class="check"><input type="checkbox" name="adjc" checked> Sumarlo al saldo de esa cuenta</label>
     <label class="check"><input type="checkbox" name="adj" checked> Restarlo del valor de la inversión</label>
-    ${!fund?'<p class="hint">Ojo: al retirar de este producto, Hacienda cobra impuestos sobre la parte de ganancia.</p>':''}${nota}`;
+    ${!fund?'<p class="hint">Ojo: al retirar de este producto, Hacienda cobra impuestos sobre la parte de ganancia. Si vendes con pérdidas y compras lo mismo en los 2 meses anteriores o posteriores, no podrás restar esa pérdida.</p>':''}${nota}`;
   if (kind==='traspaso') body=`<div class="seg2"><label><input type="radio" name="dir" value="out" checked><span>De aquí a otra</span></label><label><input type="radio" name="dir" value="in"><span>De otra a aquí</span></label></div>
     <label class="fl">La otra inversión<select name="otro" required>${invOpts(p)}</select></label>
     <label class="fl">Importe (€)<input type="number" inputmode="decimal" step="0.01" name="imp" required></label>${fecha}
@@ -886,7 +833,7 @@ async function importUpdate(file){
   const P=sh('Productos').length?sh('Productos'):(sh('Clasificación').length?sh('Clasificación'):sh('Clasificacion'));
   const M=sh('Movimientos'), V=sh('Valoraciones'), DV=sh('Dividir'), A=sh('Ajustes');
   let nuevos=0, act=0, div=0; const created=new Set();
-  const FIELDS=['nombre','entidad','tipo','categoria','isin','estado','clase','gestion','liquidez','regiones','sectores','divisas','nota','claves'];
+  const FIELDS=['nombre','entidad','tipo','categoria','isin','estado','clase','gestion','liquidez','regiones','sectores','divisas','nota','claves','ext720'];
   for (const r of P){ const id=String(r.id||'').trim(); if(!id) continue; let p=S.prod[id];
     if (!p){ if(!r.nombre||!r.tipo) continue; p=S.prod[id]={id,nombre:r.nombre,entidad:r.entidad||'',tipo:r.tipo,categoria:r.categoria||catOf(r.tipo),isin:r.isin||'',estado:r.estado||'activo',apertura:r.apertura?ds(r.apertura):null,cierre:null,traspasable:String(r.traspasable||'').toLowerCase().startsWith('s'),costePct:num(r.coste_pct),nota:r.nota||'',periodica:null,movs:[],vals:[]}; created.add(id); nuevos++ } else act++;
     FIELDS.forEach(k=>{ if(r[k]!==''&&r[k]!=null) p[k]=String(r[k]) });
@@ -908,7 +855,7 @@ async function importUpdate(file){
       kidVals.forEach((c,i)=>{ const sh2=ref?(c.vals.find(v=>v.f===ref.d)?.v||0)/ref.sum:kids[i].w/sw; if(!c.vals.some(v=>v.f===pv.f)) c.vals.push({f:pv.f,v:Math.round(pv.v*sh2*100)/100,fia:'Estimado',fu:`Reparto de ${par.nombre}`}) }) }
     kidVals.forEach(c=>{ c.vals.sort((a,b)=>a.f<b.f?-1:1); c.movs.sort((a,b)=>a.f<b.f?-1:1) });
     delete S.prod[from]; div++; logChange('Dividir producto','producto',from,par.nombre,`En ${kidVals.map(c=>c.nombre).join(', ')}`,{origen:'Importación'}) }
-  if (A[0]){ const a=A[0]; if(a.perdidas_pendientes!==''&&a.perdidas_pendientes!=null) S.cfg.perdidas=num(a.perdidas_pendientes); if(a.sp500_ytd!==''&&a.sp500_ytd!=null) S.cfg.sp500=num(a.sp500_ytd); if(a.sp500_ref) S.cfg.sp500ref=String(a.sp500_ref); if(a.avisos) S.cfg.avisos=String(a.avisos).split('|').map(s=>s.trim()).filter(Boolean) }
+  if (A[0]){ const a=A[0]; if(a.perdidas_pendientes!==''&&a.perdidas_pendientes!=null) S.cfg.perdidas=num(a.perdidas_pendientes); if(a.sp500_ytd!==''&&a.sp500_ytd!=null) S.cfg.sp500=num(a.sp500_ytd); if(a.sp500_ref) S.cfg.sp500ref=String(a.sp500_ref); if(a.msci_ytd!==''&&a.msci_ytd!=null) S.cfg.msci=num(a.msci_ytd); if(a.msci_ref) S.cfg.mscref=String(a.msci_ref); if(a.perdidas_ano!==''&&a.perdidas_ano!=null) S.cfg.perdidasAno=num(a.perdidas_ano); if(a.avisos) S.cfg.avisos=String(a.avisos).split('|').map(s=>s.trim()).filter(Boolean) }
   logChange('Importar actualización','datos','',file.name,`${nuevos} nuevos · ${act} completados · ${div} divididos`,{origen:'Importación'});
   return {nuevos,act,div};
 }
@@ -988,7 +935,7 @@ function renderInicio(){
     <div class="tile"${xi('tax_left',L)}><span>Te quedaría</span><b class="num">${eur(L.V-L.tax)}</b></div></div>
     <details class="kw"><summary>Ver por producto <small>${L.rows.length}</small></summary>${L.rows.map(r=>`<div class="hbar"${xi('tax_prod',{n:r.p.nombre,v:r.v,base:r.base,g:r.g,alone:r.taxAlone,share:r.taxShare})}><span class="hb-l">${esc(r.p.nombre)}</span><span class="hb-v num ${r.g>=0?'pos':'neg'}">${signed(r.g)}</span><span class="hb-v num">${eur(r.taxShare)}</span></div>`).join('')}</details></div>
   <div class="card"><div class="card-h">Dónde está tu dinero</div>
-    ${CATS.map(c=>`<div class="row"${xi('cat',{cat:c,v:t.by[c],share:t.by[c]/tot})}><span class="dot" style="background:var(${CATCOL[c]})"></span><span class="row-m"><b>${c}</b><small>${pctTxt(t.by[c]/tot)} del total</small></span><span class="row-r num">${eur(t.by[c])}</span></div>`).join('')}
+    ${CATS.map(c=>`<div class="row"${xi('cat',{cat:c,v:t.by[c],share:t.by[c]/tot})}><span class="dot" style="background:var(${CATCOL[c]})"></span><span class="row-m"><b>${c==='Efectivo'?'Efectivo libre':c}</b><small>${c==='Efectivo invertido'?'cuentas remuneradas · ':c==='Efectivo'?'para gastar o invertir · ':''}${pctTxt(t.by[c]/tot)} del total</small></span><span class="row-r num">${eur(t.by[c])}</span></div>`).join('')}
   </div>
   ${inicioCharts()}
   ${bankAccordion(t)}
@@ -997,40 +944,13 @@ function renderInicio(){
     <div class="row"${xi('gan_y',Object.assign({},cur||{},{y}))}><span class="row-m"><b>Rentabilidad (aprox.)</b></span><span class="row-r num ${(cur?.gan||0)>=0?'pos':'neg'}">${signed(cur?.gan)}</span></div>
     <div class="row"${xi('r_y',{y,r:cur?.r,parcial:true,inf:ipc})}><span class="row-m"><b>Rentabilidad % (aprox.)</b></span><span class="row-r num">${pct(cur?.r)}</span></div>
     <div class="row"${xi('y_sp',{y,sp:cur?.sp,r:cur?.r,parcial:true})}><span class="row-m"><b>S&P 500 este año</b></span><span class="row-r num">${pct(cur?.sp)}</span></div>
+    <div class="row"${xi('y_msci',{y,ms:cur?.ms,r:cur?.r,parcial:true})}><span class="row-m"><b>MSCI World este año</b></span><span class="row-r num">${pct(cur?.ms)}</span></div>
   </div>
   ${alerts.length?`<div class="card"><div class="card-h">Avisos</div>${alerts.map(a=>`<div class="row alert"${xi('aviso',{t:a})}><span class="dot" style="background:var(--warn)"></span><span class="row-m"><b class="wrap">${esc(a)}</b></span></div>`).join('')}</div>`:''}`;
   if (TAB==='inicio') setTimeout(()=>drawDonuts(el),0);
 }
 
 /* --- histórico --- */
-function renderHist(){
-  const el=$('#historico'); const ser=series(); if (!ser){ el.innerHTML=noData(); return }
-  const an=annual(ser).slice().reverse(); const INF={2021:'3,1 %',2022:'8,4 %',2023:'3,5 %',2024:'2,8 %',2025:'2,7 %'};
-  el.innerHTML=`<div class="card"><div class="card-h" ${xi('chart',{})}>Evolución <span class="ib">${ICON.info}</span></div><div class="chartbox"><canvas id="hchart" aria-label="Evolución del patrimonio"></canvas></div>
-    <div class="legend"><span><i style="background:var(--inv)"></i>Inversiones</span><span><i style="background:var(--ei)"></i>Efectivo</span><span><i class="dash"></i>Invertido</span></div></div>
-  ${an.map(a=>{const inf=INF[a.y]||String(S.cfg.ipc).replace('.',',')+' %';const c=Object.assign({},a,{inf});return `<div class="card"><div class="card-h">${a.y}${a.parcial?' <small>hasta hoy</small>':''}</div><div class="tiles three">
-    <div class="tile"${xi('v0_y',{y:a.y,v:a.V0})}><span>Empezó</span><b class="num">${eur(a.V0)}</b></div>
-    <div class="tile"${xi('ext_y',{y:a.y,v:a.ext})}><span>Invertido</span><b class="num">${eur(a.ext)}</b></div>
-    <div class="tile"${xi('v1_y',{y:a.y,v:a.V,parcial:a.parcial})}><span>${a.parcial?'Hoy':'Acabó'}</span><b class="num">${eur(a.V)}</b></div>
-    <div class="tile"${xi('gan_y',c)}><span>Rentabilidad</span><b class="num ${a.gan>=0?'pos':'neg'}">${signed(a.gan)}</b></div>
-    <div class="tile"${xi('r_y',c)}><span>Rentab. %</span><b class="num ${a.r>=0?'pos':'neg'}">${pct(a.r)}</b></div>
-    <div class="tile"${xi('y_sp',{y:a.y,sp:a.sp,r:a.r,parcial:a.parcial})}><span>S&P 500</span><b class="num">${pct(a.sp)}</b></div>
-    <div class="tile"${xi('y_risk',{y:a.y,r:a.riesgo})}><span>Riesgo</span><b class="num">${a.riesgo==null?'—':a.riesgo.toFixed(1).replace('.',',')+' / 7'}</b></div>
-    <div class="tile"${xi('inf',{v:inf,src:'IPC medio anual, INE'})}><span>Inflación</span><b class="num">${inf}</b></div>
-    <div class="tile"${xi('cash_total',{tot:a.cashEnd,ef:0,ei:a.cashEnd,n:cashProds().length})}><span>Efectivo</span><b class="num">${eur(a.cashEnd)}</b></div></div></div>`}).join('')}`;
-  if (!window.Chart || TAB!=='historico') return;
-  if (chart) chart.destroy();
-  const mut=css('--muted'), line=css('--line');
-  chart=new Chart($('#hchart'),{type:'line',data:{labels:ser.map(r=>r.f),datasets:[
-    {label:'Inversiones',data:ser.map(r=>r['Inversión']),borderColor:css('--inv'),backgroundColor:css('--inv')+'40',fill:'origin',pointRadius:0,tension:.3,stack:'a',borderWidth:2},
-    {label:'Efectivo',data:ser.map(r=>r['Efectivo invertido']),borderColor:css('--ei'),backgroundColor:css('--ei')+'40',fill:'-1',pointRadius:0,tension:.3,stack:'a',borderWidth:2},
-    {label:'Invertido',data:ser.map(r=>r.ext),borderColor:css('--ink'),borderDash:[5,4],fill:false,pointRadius:0,stack:'b',borderWidth:1.5}]},
-    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
-      scales:{x:{ticks:{color:mut,maxTicksLimit:5,maxRotation:0,callback(v){return D(this.getLabelForValue(v)).toLocaleDateString('es-ES',{month:'short',year:'2-digit'})}},grid:{display:false},border:{display:false}},
-        y:{stacked:true,position:'right',ticks:{color:mut,maxTicksLimit:5,callback:v=>new Intl.NumberFormat('es-ES',{notation:'compact'}).format(v)+' €'},grid:{color:line},border:{display:false}}},
-      plugins:{legend:{display:false},tooltip:{callbacks:{title:i=>fdate(i[0].label),label:c=>`${c.dataset.label}: ${eur(c.parsed.y)}`}}}}});
-}
-
 /* --- ficha de producto (inversión o cuenta) --- */
 function openProduct(id){
   const p=S.prod[id]; if(!p) return; const s=stats(p); const dlg=$('#dlg'); const closed=p.estado==='cerrado'; const cash=isCash(p);
@@ -1080,6 +1000,7 @@ function openProduct(id){
       <label class="fl">Regiones (ej.: EE. UU.:60;Europa:25;Emergentes:15)<input name="regiones" value="${esc(p.regiones||'')}"></label>
       <label class="fl">Sectores (ej.: Tecnología:40;Salud:20)<input name="sectores" value="${esc(p.sectores||'')}"></label>
       <label class="fl">Monedas (ej.: USD:70;EUR:30)<input name="divisas" value="${esc(p.divisas||'')}"></label>`}
+      <label class="fl">Bien en el extranjero (modelos 720/721)<select name="ext720">${[['','Automático'],['no','No'],['cuentas','Cuenta en el extranjero'],['valores','Valores o fondos en el extranjero'],['cripto','Cripto en el extranjero']].map(([v,l])=>`<option value="${v}" ${String(p.ext720||'')===v?'selected':''}>${l}${v===''?' ('+(blk720(p)||'no')+')':''}</option>`).join('')}</select></label>
       <label class="fl">Lo que debes vigilar (un punto por línea)<textarea name="claves" rows="5">${esc(p.claves||'')}</textarea></label>
       <button class="btn wide">Guardar cambios</button></form>
       <button class="btn wide danger" id="delp">Borrar este producto</button>
@@ -1093,7 +1014,7 @@ function openProduct(id){
       p.costePct=f.get('coste')===''?null:+f.get('coste');
       p.periodica = f.get('pimp')? {importe:+f.get('pimp'),frecuencia:f.get('pfreq'),hasta:p.periodica?.hasta||today()} : null;
       p.riesgo=f.get('riesgo')?+f.get('riesgo'):null; ['clase','gestion','liquidez','regiones','sectores','divisas'].forEach(k=>p[k]=String(f.get(k)||'').trim()) }
-    p.claves=String(f.get('claves')||'').trim();
+    p.claves=String(f.get('claves')||'').trim(); p.ext720=String(f.get('ext720')||'');
     logChange('Editar datos del producto',cash?'efectivo':'producto',p.id,p.nombre,cash?`Interés ${p.tae??'—'} % · estado ${p.estado}`:`Coste ${p.costePct??'—'} % · estado ${p.estado} · riesgo ${p.riesgo??'—'}`); await persist('p',p); render(); openProduct(id); toast('Cambios guardados')};
   dlg.querySelectorAll('[data-dm]').forEach(b=>b.onclick=async ev=>{ ev.stopPropagation(); if(!confirm('¿Borrar este movimiento?'))return; const _m=p.movs.splice(+b.dataset.dm,1)[0]; logChange('Borrar movimiento','producto',p.id,p.nombre,_m.mov||'',{f:_m.f,importe:_m.tipo==='salida'?-_m.imp:_m.imp}); await persist('p',p); render(); openProduct(id) });
   dlg.querySelectorAll('[data-dv]').forEach(b=>b.onclick=async ev=>{ ev.stopPropagation(); if(!confirm('¿Borrar este dato?'))return; const _v=p.vals.splice(+b.dataset.dv,1)[0]; logChange(cash?'Borrar saldo':'Borrar valoración','producto',p.id,p.nombre,'',{f:_v.f,antes:_v.v}); await persist('p',p); render(); openProduct(id) });
@@ -1156,15 +1077,15 @@ function bindNew(){
 function workbookFromState(){
   const P=[],M=[],V=[],Dd=[];
   for (const p of Object.values(S.prod)){
-    P.push({id:p.id,nombre:p.nombre,entidad:p.entidad,tipo:p.tipo,categoria:p.categoria,isin:p.isin||'',estado:p.estado,apertura:p.apertura||'',cierre:p.cierre||'',traspasable:p.traspasable?'sí':'no',coste_pct:p.costePct??'',tae:p.tae??'',periodica_importe:p.periodica?.importe??'',periodica_frecuencia:p.periodica?.frecuencia??'',periodica_hasta:p.periodica?.hasta??'',nota:p.nota||'',riesgo:p.riesgo??'',clase:p.clase||'',gestion:p.gestion||'',liquidez:p.liquidez||'',regiones:p.regiones||'',sectores:p.sectores||'',divisas:p.divisas||'',claves:p.claves||'',claves_pdf:p.claves_pdf||''});
+    P.push({id:p.id,nombre:p.nombre,entidad:p.entidad,tipo:p.tipo,categoria:p.categoria,isin:p.isin||'',estado:p.estado,apertura:p.apertura||'',cierre:p.cierre||'',traspasable:p.traspasable?'sí':'no',coste_pct:p.costePct??'',tae:p.tae??'',periodica_importe:p.periodica?.importe??'',periodica_frecuencia:p.periodica?.frecuencia??'',periodica_hasta:p.periodica?.hasta??'',nota:p.nota||'',riesgo:p.riesgo??'',clase:p.clase||'',gestion:p.gestion||'',liquidez:p.liquidez||'',regiones:p.regiones||'',sectores:p.sectores||'',divisas:p.divisas||'',claves:p.claves||'',claves_pdf:p.claves_pdf||'',ext720:p.ext720||''});
     (p.movs||[]).forEach(m=>M.push({producto_id:p.id,producto:p.nombre,fecha:m.f,tipo:m.tipo,importe:m.imp,externo:m.ext,clasificacion:m.cls||'',fiabilidad:m.fia||'',fecha_aproximada:m.aprox?'sí':'',precio:m.precio??'',unidades:m.uds??'',movimiento:m.mov||'',nota:m.nota||''}));
     (p.vals||[]).forEach(v=>V.push({producto_id:p.id,producto:p.nombre,fecha:v.f,valor:v.v,fiabilidad:v.fia||'',fuente:v.fu||''}));
   }
-  Object.values(S.debts).forEach(d=>Dd.push({id:d.id,nombre:d.nombre,entidad:d.entidad,capital:d.capital,tin:d.tin,cuota:d.cuota,primer_pago:d.primerPago,n_cuotas:d.n,nota:d.nota||'',amortizaciones:(d.extras||[]).length?JSON.stringify(d.extras):''}));
+  Object.values(S.debts).forEach(d=>Dd.push({id:d.id,nombre:d.nombre,entidad:d.entidad,capital:d.capital,tin:d.tin,cuota:d.cuota,primer_pago:d.primerPago,n_cuotas:d.n,nota:d.nota||'',amortizaciones:(d.extras||[]).length?JSON.stringify(d.extras):'',comision_cancel:d.comision??'',cuenta_cargo:d.cuenta||'',cargado_hasta:d.cargado||''}));
   const wb=XLSX.utils.book_new();
   [['Productos',P],['Movimientos',M],['Valoraciones',V],['Deudas',Dd]].forEach(([n,r])=>XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(r),n));
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet((S.log||[]).length?S.log:[{id:'',ts:'',accion:'',objeto:'',objeto_id:'',nombre:'',detalle:'',fecha_efecto:'',importe:'',antes:'',despues:'',origen:'',usuario:'',dispositivo:''}]),'Bitacora');
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet([{ipc:S.cfg.ipc,ipc_ref:S.cfg.ipcRef||'',avisos:(S.cfg.avisos||[]).join(' | '),perdidas_pendientes:S.cfg.perdidas??'',sp500_ytd:S.cfg.sp500??'',sp500_ref:S.cfg.sp500ref||''}]),'Ajustes');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet([{ipc:S.cfg.ipc,ipc_ref:S.cfg.ipcRef||'',avisos:(S.cfg.avisos||[]).join(' | '),perdidas_pendientes:S.cfg.perdidas??'',sp500_ytd:S.cfg.sp500??'',sp500_ref:S.cfg.sp500ref||'',msci_ytd:S.cfg.msci??'',msci_ref:S.cfg.mscref||'',perdidas_ano:S.cfg.perdidasAno??''}]),'Ajustes');
   return XLSX.write(wb,{type:'array',bookType:'xlsx'});
 }
 function stateFromWorkbook(buf){
@@ -1177,13 +1098,280 @@ function stateFromWorkbook(buf){
   const prod={};
   P.forEach(r=>{ prod[r.id]={id:String(r.id),nombre:r.nombre,entidad:r.entidad,tipo:r.tipo,categoria:r.categoria||catOf(r.tipo),isin:r.isin,estado:r.estado||'activo',apertura:r.apertura?ds(r.apertura):null,cierre:r.cierre?ds(r.cierre):null,traspasable:String(r.traspasable).toLowerCase().startsWith('s'),costePct:num(r.coste_pct),tae:num(r.tae),nota:r.nota,
     periodica: r.periodica_importe!==''&&r.periodica_importe!=null?{importe:num(r.periodica_importe),frecuencia:r.periodica_frecuencia||'mensual',hasta:r.periodica_hasta?ds(r.periodica_hasta):today()}:null,movs:[],vals:[],
-    riesgo:num(r.riesgo),clase:r.clase||'',gestion:r.gestion||'',liquidez:r.liquidez||'',regiones:String(r.regiones||''),sectores:String(r.sectores||''),divisas:String(r.divisas||''),claves:String(r.claves||''),claves_pdf:String(r.claves_pdf||'')} });
+    riesgo:num(r.riesgo),clase:r.clase||'',gestion:r.gestion||'',liquidez:r.liquidez||'',regiones:String(r.regiones||''),sectores:String(r.sectores||''),divisas:String(r.divisas||''),claves:String(r.claves||''),claves_pdf:String(r.claves_pdf||''),ext720:String(r.ext720||'')} });
   M.forEach(r=>{ const p=prod[r.producto_id]; if(!p) return; p.movs.push({f:ds(r.fecha),tipo:r.tipo,imp:num(r.importe)||0,ext:num(r.externo)||0,cls:r.clasificacion,fia:r.fiabilidad,aprox:String(r.fecha_aproximada).startsWith('s')||undefined,precio:num(r.precio),uds:num(r.unidades),mov:r.movimiento,nota:r.nota}) });
   V.forEach(r=>{ const p=prod[r.producto_id]; if(!p) return; p.vals.push({f:ds(r.fecha),v:num(r.valor)||0,fia:r.fiabilidad,fu:r.fuente}) });
   Object.values(prod).forEach(p=>{p.movs.sort((a,b)=>a.f<b.f?-1:1);p.vals.sort((a,b)=>a.f<b.f?-1:1)});
-  const debts={}; Dd.forEach(r=>{ debts[r.id]={id:String(r.id),nombre:r.nombre,entidad:r.entidad,capital:num(r.capital),tin:num(r.tin),cuota:num(r.cuota),primerPago:ds(r.primer_pago),n:num(r.n_cuotas),nota:r.nota,extras:(()=>{ try{ return r.amortizaciones?JSON.parse(r.amortizaciones):[] }catch(e){ return [] } })()} });
-  const cfg=Object.assign({}, S.cfg); const a=A[0]; if (a){ if(a.ipc!=='') cfg.ipc=num(a.ipc); if(a.ipc_ref) cfg.ipcRef=String(a.ipc_ref); cfg.avisos=String(a.avisos||'').split('|').map(s=>s.trim()).filter(Boolean); if(a.perdidas_pendientes!==''&&a.perdidas_pendientes!=null) cfg.perdidas=num(a.perdidas_pendientes); if(a.sp500_ytd!==''&&a.sp500_ytd!=null) cfg.sp500=num(a.sp500_ytd); if(a.sp500_ref) cfg.sp500ref=String(a.sp500_ref) }
+  const debts={}; Dd.forEach(r=>{ debts[r.id]={id:String(r.id),nombre:r.nombre,entidad:r.entidad,capital:num(r.capital),tin:num(r.tin),cuota:num(r.cuota),primerPago:ds(r.primer_pago),n:num(r.n_cuotas),nota:r.nota,comision:num(r.comision_cancel),cuenta:String(r.cuenta_cargo||''),cargado:r.cargado_hasta?ds(r.cargado_hasta):'',extras:(()=>{ try{ return r.amortizaciones?JSON.parse(r.amortizaciones):[] }catch(e){ return [] } })()} });
+  const cfg=Object.assign({}, S.cfg); const a=A[0]; if (a){ if(a.ipc!=='') cfg.ipc=num(a.ipc); if(a.ipc_ref) cfg.ipcRef=String(a.ipc_ref); cfg.avisos=String(a.avisos||'').split('|').map(s=>s.trim()).filter(Boolean); if(a.perdidas_pendientes!==''&&a.perdidas_pendientes!=null) cfg.perdidas=num(a.perdidas_pendientes); if(a.sp500_ytd!==''&&a.sp500_ytd!=null) cfg.sp500=num(a.sp500_ytd); if(a.sp500_ref) cfg.sp500ref=String(a.sp500_ref); if(a.msci_ytd!==''&&a.msci_ytd!=null) cfg.msci=num(a.msci_ytd); if(a.msci_ref) cfg.mscref=String(a.msci_ref); if(a.perdidas_ano!==''&&a.perdidas_ano!=null) cfg.perdidasAno=num(a.perdidas_ano) }
   return {prod,debts,cfg,log:LG};
+}
+
+
+/* ================== V4: histórico desde 2024, doble referencia, estrés, costes, fiscalidad y deuda ================== */
+const HIST0='2024-01-01';
+const MSCI={2021:31.07,2022:-12.78,2023:19.60,2024:26.60,2025:6.77};
+const MSCI_YTD={v:15.55,ref:'MSCI World en euros, del 1/1 al 30/9/2026 (ficha oficial de MSCI)'};
+const nf1=n=>n==null||!isFinite(n)?'—':String(Math.round(n*10)/10).replace('.',',');
+function series(){
+  const starts=Object.values(S.prod).map(p=>p.apertura||(p.vals&&p.vals[0]?.f)).filter(Boolean).sort();
+  if (!starts.length) return null;
+  const s=starts[0]<'2023-12-01'?D('2023-12-01'):D(starts[0]); const out=[]; const now=today(); const ps=Object.values(S.prod);
+  let d=new Date(s.getFullYear(), s.getMonth()+1, 0);
+  while (true){
+    const iso=d.toISOString().slice(0,10) > now ? now : d.toISOString().slice(0,10);
+    const row={f:iso,'Inversión':0,'Efectivo invertido':0,ext:0,rN:0,rD:0};
+    for (const p of ps){ const v=valueAt(p,iso);
+      if (isInv(p)){ row['Inversión']+=v; for (const m of p.movs||[]) if (m.f<=iso) row.ext+=invFlow(m) } else row['Efectivo invertido']+=v;
+      const r=profile(p).riesgo; if (r && v>0){ row.rN+=r*v; row.rD+=v } }
+    out.push(row);
+    if (iso===now) break;
+    d=new Date(d.getFullYear(), d.getMonth()+2, 0);
+  }
+  return out;
+}
+function annual(ser){
+  const CY=String(new Date().getFullYear()); const res=[];
+  const pre=ser.filter(r=>r.f<HIST0); let prevV=pre.length?pre[pre.length-1]['Inversión']:0;
+  const ys=[...new Set(ser.filter(r=>r.f>=HIST0).map(r=>r.f.slice(0,4)))];
+  for (const y of ys){
+    const rows=ser.filter(r=>r.f.startsWith(y)); const last=rows[rows.length-1]; const V=last['Inversión'];
+    const flows=[]; for (const p of Object.values(S.prod)) if (isInv(p)) for (const m of p.movs||[]) if (m.f.startsWith(y) && invFlow(m)) flows.push(m);
+    const ext=flows.reduce((s,m)=>s+invFlow(m),0);
+    const end=last.f, start=`${y}-01-01`; const T=Math.max(1,days(start,end));
+    const W=flows.reduce((s,m)=>s+invFlow(m)*Math.max(0,days(m.f,end))/T,0);
+    const gan=V-prevV-ext; const base=prevV+W;
+    const rk=rows.filter(r=>r.rD>0).map(r=>r.rN/r.rD); const riesgo=rk.length?rk.reduce((a,b)=>a+b,0)/rk.length:null;
+    const has=v=>v!=null&&v!=='';
+    const sp = y===CY ? (has(S.cfg.sp500)?+S.cfg.sp500:null) : (SP500[y]??null);
+    const ms = y===CY ? (has(S.cfg.msci)?+S.cfg.msci:MSCI_YTD.v) : (MSCI[y]??null);
+    res.push({y, V0:prevV, ext, V, gan, r: base>100? gan/base : null, parcial:y===CY, riesgo, sp: sp==null?null:sp/100, ms: ms==null?null:ms/100, cashEnd:last['Efectivo invertido']});
+    prevV=V;
+  }
+  return res;
+}
+function chain(arr,k){ const xs=arr.map(a=>a[k]).filter(v=>v!=null); if(!xs.length) return null; return xs.reduce((a,b)=>a*(1+b),1)-1 }
+
+/* --- histórico --- */
+function renderHist(){
+  const el=$('#historico'); const ser=series(); if (!ser){ el.innerHTML=noData(); return }
+  const an0=annual(ser); const an=an0.slice().reverse(); const INF={2024:'2,8 %',2025:'2,7 %'};
+  const me=chain(an0,'r'), sp=chain(an0,'sp'), ms=chain(an0,'ms');
+  el.innerHTML=`<div class="card"><div class="card-h">Desde 2024 <small>hasta hoy</small></div><div class="tiles three">
+      <div class="tile"${xi('since24',{me,sp,ms,who:'tú'})}><span>Tus inversiones</span><b class="num ${me>=0?'pos':'neg'}">${pct(me)}</b></div>
+      <div class="tile"${xi('since24',{me,sp,ms,who:'sp'})}><span>S&amp;P 500</span><b class="num">${pct(sp)}</b></div>
+      <div class="tile"${xi('since24',{me,sp,ms,who:'msci'})}><span>MSCI World</span><b class="num">${pct(ms)}</b></div></div>
+      <p class="hint">El histórico empieza en 2024, el primer año con datos reales suficientes. Tus inversiones anteriores siguen contando en los totales de Inicio.</p></div>
+  <div class="card"><div class="card-h" ${xi('chart',{})}>Evolución <span class="ib">${ICON.info}</span></div><div class="chartbox"><canvas id="hchart" aria-label="Evolución del patrimonio"></canvas></div>
+    <div class="legend"><span><i style="background:var(--inv)"></i>Inversiones</span><span><i style="background:var(--ei)"></i>Efectivo</span><span><i class="dash"></i>Invertido</span></div></div>
+  ${an.map(a=>{const inf=INF[a.y]||String(S.cfg.ipc).replace('.',',')+' %';const c=Object.assign({},a,{inf});return `<div class="card"><div class="card-h">${a.y}${a.parcial?' <small>hasta hoy</small>':''}</div><div class="tiles three">
+    <div class="tile"${xi('v0_y',{y:a.y,v:a.V0})}><span>Empezó</span><b class="num">${eur(a.V0)}</b></div>
+    <div class="tile"${xi('ext_y',{y:a.y,v:a.ext})}><span>Invertido</span><b class="num">${eur(a.ext)}</b></div>
+    <div class="tile"${xi('v1_y',{y:a.y,v:a.V,parcial:a.parcial})}><span>${a.parcial?'Hoy':'Acabó'}</span><b class="num">${eur(a.V)}</b></div>
+    <div class="tile"${xi('gan_y',c)}><span>Rentabilidad</span><b class="num ${a.gan>=0?'pos':'neg'}">${signed(a.gan)}</b></div>
+    <div class="tile"${xi('r_y',c)}><span>Rentab. %</span><b class="num ${a.r>=0?'pos':'neg'}">${pct(a.r)}</b></div>
+    <div class="tile"${xi('y_risk',{y:a.y,r:a.riesgo})}><span>Riesgo</span><b class="num">${a.riesgo==null?'—':nf1(a.riesgo)+' / 7'}</b></div>
+    <div class="tile"${xi('y_sp',{y:a.y,sp:a.sp,r:a.r,parcial:a.parcial})}><span>S&amp;P 500</span><b class="num">${pct(a.sp)}</b></div>
+    <div class="tile"${xi('y_msci',{y:a.y,ms:a.ms,r:a.r,parcial:a.parcial})}><span>MSCI World</span><b class="num">${pct(a.ms)}</b></div>
+    <div class="tile"${xi('inf',{v:inf,src:'IPC medio anual, INE'})}><span>Inflación</span><b class="num">${inf}</b></div></div>
+    <p class="hint"${xi('cash_total',{tot:a.cashEnd,ef:0,ei:a.cashEnd,n:cashProds().length})}>Efectivo al ${a.parcial?'día de hoy':'cierre'}: ${eur(a.cashEnd)}</p></div>`}).join('')}`;
+  if (!window.Chart || TAB!=='historico') return;
+  if (chart) chart.destroy();
+  const mut=css('--muted'), line=css('--line');
+  chart=new Chart($('#hchart'),{type:'line',data:{labels:ser.map(r=>r.f),datasets:[
+    {label:'Inversiones',data:ser.map(r=>r['Inversión']),borderColor:css('--inv'),backgroundColor:css('--inv')+'40',fill:'origin',pointRadius:0,tension:.3,stack:'a',borderWidth:2},
+    {label:'Efectivo',data:ser.map(r=>r['Efectivo invertido']),borderColor:css('--ei'),backgroundColor:css('--ei')+'40',fill:'-1',pointRadius:0,tension:.3,stack:'a',borderWidth:2},
+    {label:'Invertido',data:ser.map(r=>r.ext),borderColor:css('--ink'),borderDash:[5,4],fill:false,pointRadius:0,stack:'b',borderWidth:1.5}]},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      scales:{x:{ticks:{color:mut,maxTicksLimit:5,maxRotation:0,callback(v){return D(this.getLabelForValue(v)).toLocaleDateString('es-ES',{month:'short',year:'2-digit'})}},grid:{display:false},border:{display:false}},
+        y:{stacked:true,position:'right',ticks:{color:mut,maxTicksLimit:5,callback:v=>new Intl.NumberFormat('es-ES',{notation:'compact'}).format(v)+' €'},grid:{color:line},border:{display:false}}},
+      plugins:{legend:{display:false},tooltip:{callbacks:{title:i=>fdate(i[0].label),label:c=>`${c.dataset.label}: ${eur(c.parsed.y)}`}}}}});
+}
+
+/* --- prueba de estrés: qué pasaría si la bolsa cae --- */
+const SHOCK={'Renta variable':1,'Cripto':1.5,'Metales':0,'Liquidez':0};
+let STRESS=0.3;
+function stress(drop){
+  const rows=[]; let loss=0, inv=0, all=0;
+  for (const p of activeProds()){ const v=value(p); all+=v; if(isInv(p)) inv+=v; const cl=profile(p).clase; const m=SHOCK[cl]??(isInv(p)?1:0); const l=Math.min(v,v*drop*m); if(l>0.5){ rows.push({n:p.nombre,v,l,cl}); loss+=l } }
+  rows.sort((a,b)=>b.l-a.l); return {drop,loss,inv,all,rows};
+}
+function stressCard(){
+  const s=stress(STRESS); const max=s.rows[0]?.l||1;
+  return `<div class="chips in">${[0.1,0.2,0.3,0.4].map(d=>`<button class="chip" data-stress="${d}" aria-pressed="${d===STRESS}">−${d*100} %</button>`).join('')}</div>
+    <div class="tiles three">
+      <div class="tile"${xi('stress',s)}><span>Perderías</span><b class="num neg">${eur(-s.loss)}</b></div>
+      <div class="tile"${xi('stress',s)}><span>De tus inversiones</span><b class="num neg">${pct(-s.loss/(s.inv||1))}</b></div>
+      <div class="tile"${xi('stress',s)}><span>De todo lo que tienes</span><b class="num neg">${pct(-s.loss/(s.all||1))}</b></div></div>
+    <div class="sublab">Dónde más se notaría</div>
+    ${s.rows.slice(0,6).map(r=>`<div class="hbar"${xi('stress_p',Object.assign({drop:s.drop},r))}><span class="hb-l">${esc(r.n)}</span><span class="hb-t"><i style="width:${r.l/max*100}%;background:var(--neg)"></i></span><span class="hb-v num">${eur(-r.l)}</span></div>`).join('')}`;
+}
+document.addEventListener('click',e=>{ const b=e.target.closest('[data-stress]'); if(!b) return; STRESS=+b.dataset.stress; const box=$('#stressbox'); if(box) box.innerHTML=stressCard() });
+
+/* --- lo que cuestan tus inversiones, frente a un indexado --- */
+const IDXC=0.2, GROSS=0.06;
+function perYear(pr){ if(!pr||!pr.importe) return 0; return pr.importe*(pr.frecuencia==='diaria'?365:pr.frecuencia==='semanal'?52:12) }
+function fvc(V,A,c,n){ const g=GROSS-c/100; return V*Math.pow(1+g,n)+(g?A*(Math.pow(1+g,n)-1)/g:A*n) }
+function costView(){
+  const rows=activeProds().filter(p=>isInv(p)&&p.costePct!=null&&p.costePct!=='').map(p=>{ const v=value(p); return {p,v,c:+p.costePct,y:v*(+p.costePct)/100,a:perYear(p.periodica)} }).sort((a,b)=>b.y-a.y);
+  const tot=rows.reduce((s,r)=>s+r.y,0); const hi=rows.filter(r=>r.c>1);
+  const V=hi.reduce((s,r)=>s+r.v,0), A=hi.reduce((s,r)=>s+r.a,0), c=V?hi.reduce((s,r)=>s+r.v*r.c,0)/V:0;
+  let paid=0; const now=today();
+  for (const p of Object.values(S.prod)){ if(!isInv(p)||p.costePct==null||p.costePct==='') continue; const st=p.apertura||(p.vals&&p.vals[0]?.f); if(!st) continue;
+    let d=new Date(D(st).getFullYear(),D(st).getMonth()+1,0); const endp=p.estado==='cerrado'&&p.cierre?p.cierre:now;
+    while (d.toISOString().slice(0,10)<=endp){ paid+=valueAt(p,d.toISOString().slice(0,10))*(+p.costePct)/100/12; d=new Date(d.getFullYear(),d.getMonth()+2,0) } }
+  const d10=fvc(V,A,IDXC,10)-fvc(V,A,c,10), d20=fvc(V,A,IDXC,20)-fvc(V,A,c,20);
+  return {rows,tot,hi,V,A,c,paid,d10,d20,yHi:V*c/100,yIdx:V*IDXC/100};
+}
+function costCard(){
+  const k=costView(); const max=k.rows[0]?.y||1;
+  return `<div class="tiles">
+      <div class="tile"${xi('cost_tot',k)}><span>Te cuestan al año</span><b class="num neg">${eur(k.tot)}</b></div>
+      <div class="tile"${xi('cost_paid',k)}><span>Pagado desde el inicio</span><b class="num neg">≈ ${eur(k.paid)}</b></div>
+      <div class="tile"${xi('cost_idx',Object.assign({n:10},k))}><span>Indexado a 10 años</span><b class="num pos">+${eur(k.d10)}</b></div>
+      <div class="tile"${xi('cost_idx',Object.assign({n:20},k))}><span>Indexado a 20 años</span><b class="num pos">+${eur(k.d20)}</b></div></div>
+    ${k.hi.length?`<p class="hint">Los productos caros (más del 1 % al año) suman ${eur(k.V)} y cuestan un ${nf1(k.c)} % de media: ${eur(k.yHi)} al año. Indexados al ${String(IDXC).replace('.',',')} % costarían ${eur(k.yIdx)}.</p>`:''}
+    <div class="sublab">Por producto, al año</div>
+    ${k.rows.map(r=>`<div class="hbar"${xi('cost_p',r)}><span class="hb-l">${esc(r.p.nombre)}</span><span class="hb-t"><i style="width:${r.y/max*100}%;background:${r.c>1?'var(--neg)':'var(--muted)'}"></i></span><span class="hb-v num">${eur(r.y)}</span></div>`).join('')}`;
+}
+
+/* --- fiscalidad --- */
+const DEF720={}; // los bloques de cada producto viven en tu Excel (columna ext720), no en el código
+const B720={cuentas:'Cuentas en el extranjero (modelo 720)',valores:'Valores y fondos en el extranjero (modelo 720)',cripto:'Cripto en el extranjero (modelo 721)'};
+function blk720(p){ return p.ext720!=null&&p.ext720!==''?(p.ext720==='no'?'':p.ext720):(DEF720[p.id]||'') }
+function fiscal(){
+  const L=liquidation(); const pos=L.rows.filter(r=>r.g>0), neg=L.rows.filter(r=>r.g<0);
+  const gp=pos.reduce((s,r)=>s+r.g,0), gn=neg.reduce((s,r)=>s+r.g,0);
+  const negNoFund=neg.filter(r=>!r.p.traspasable&&r.p.tipo!=='Seguro'&&!/CFD/i.test(r.p.nombre));
+  const cash=cashProds(); const intY=cash.reduce((s,p)=>s+value(p)*(+p.tae||0)/100,0);
+  const blocks={}; for (const p of Object.values(S.prod)){ if(p.estado==='cerrado') continue; const b=blk720(p); if(!b) continue; (blocks[b]=blocks[b]||{v:0,ps:[]}); blocks[b].v+=value(p); blocks[b].ps.push(p.nombre) }
+  const y=String(new Date().getFullYear()); const warn2=[];
+  for (const p of Object.values(S.prod)){ if(!isInv(p)||p.traspasable) continue; const ms=(p.movs||[]).filter(m=>m.imp>0);
+    for (const s of ms.filter(m=>m.tipo==='salida'&&m.f>=`${+y-1}-11-01`)) { const b=ms.find(m=>m.tipo==='entrada'&&Math.abs(days(m.f,s.f))<=61&&m!==s); if(b){ warn2.push({n:p.nombre,f:s.f,fb:b.f}); break } } }
+  const pend=+S.cfg.perdidas||0, pAno=+S.cfg.perdidasAno||2023;
+  return {L,gp,gn,negNoFund,intY,intTax:taxOn(intY),blocks,warn2,pend,pAno,cad:pAno+4};
+}
+function fiscalCard(){
+  const f=fiscal();
+  return `<div class="tiles">
+      <div class="tile"${xi('fis_perd',f)}><span>Pérdidas por compensar</span><b class="num">${eur(f.pend)}</b></div>
+      <div class="tile"${xi('fis_perd',f)}><span>Caducan</span><b class="num">renta ${f.cad}</b></div>
+      <div class="tile"${xi('fis_lat',f)}><span>Ganancias latentes</span><b class="num pos">${signed(f.gp)}</b></div>
+      <div class="tile"${xi('fis_lat',f)}><span>Pérdidas latentes</span><b class="num neg">${signed(f.gn)}</b></div>
+      <div class="tile"${xi('fis_int',f)}><span>Intereses de cuentas/año</span><b class="num">≈ ${eur(f.intY)}</b></div>
+      <div class="tile"${xi('fis_int',f)}><span>Impuesto de esos intereses</span><b class="num neg">≈ ${eur(f.intTax)}</b></div></div>
+    ${f.negNoFund.length?`<div class="claim"${xi('fis_harv',f)}>${ICON.info}<span>Tienes pérdidas latentes en ${esc(f.negNoFund.map(r=>r.p.nombre).join(', '))}. Si vendes, esa pérdida resta de tus ganancias del año, pero no compres lo mismo en los 2 meses anteriores o posteriores. Comprueba la pérdida real en tu bróker: la app usa lo aportado como coste.</span></div>`:''}
+    ${f.warn2.map(w=>`<div class="claim"${xi('fis_2m',w)}>${ICON.info}<span>${esc(w.n)}: vendiste el ${sdate(w.f)} y compraste el ${sdate(w.fb)}. Si esa venta tuvo pérdidas, Hacienda no te deja restarla todavía.</span></div>`).join('')}
+    <div class="sublab">Modelos 720 y 721 (bienes en el extranjero)</div>
+    ${Object.keys(B720).map(b=>{ const x=f.blocks[b]; const v=x?.v||0; return `<div class="hbar"${xi('fis_720',{b,lab:B720[b],v,ps:x?.ps||[]})}><span class="hb-l">${B720[b].split(' (')[0]}</span><span class="hb-t"><i style="width:${Math.min(100,v/50000*100)}%;background:${v>=50000?'var(--neg)':'var(--ei)'}"></i></span><span class="hb-v num">${eur(v)}</span></div>` }).join('')}
+    <p class="hint">La barra llena es el límite de 50.000 € por bloque. Qué cuenta como "en el extranjero" es una estimación: revísalo con tu gestor y corrígelo en "Editar" de cada producto.</p>`;
+}
+
+/* --- análisis: añade estrés, costes y fiscalidad --- */
+function renderAnalisis(){
+  renderAnalisisBase(); const el=$('#analisis'); if (!Object.keys(S.prod).length) return;
+  el.insertAdjacentHTML('beforeend',`
+  <div class="card"><div class="card-h"${xi('stress',stress(STRESS))}>Si la bolsa cae <span class="ib">${ICON.info}</span></div><div id="stressbox">${stressCard()}</div></div>
+  <div class="card"><div class="card-h"${xi('cost_tot',costView())}>Lo que te cuestan tus inversiones <span class="ib">${ICON.info}</span></div>${costCard()}</div>
+  <div class="card"><div class="card-h"${xi('fis_intro',{})}>Fiscalidad <span class="ib">${ICON.info}</span></div>${fiscalCard()}</div>`);
+}
+
+/* ================== DEUDA ================== */
+function loanRows(d){
+  const r=(+d.tin||0)/1200, n=+d.n||0; const first=D(d.primerPago);
+  let bal=+d.capital||0, cuota=+d.cuota||0; const ex=(d.extras||[]).slice().sort((a,b)=>a.f<b.f?-1:1); let ei=0; const out=[];
+  for (let i=0;i<n+600 && bal>0.005;i++){
+    const pd=new Date(first); pd.setMonth(pd.getMonth()+i); const pds=pd.toISOString().slice(0,10);
+    while (ei<ex.length && ex[ei].f<pds){ const x=ex[ei]; bal=Math.max(0,bal-x.imp); out.push({f:x.f,extra:true,imp:x.imp,bal,modo:x.modo,com:x.com||0}); if (x.modo==='cuota'){ const m=Math.max(1,n-i); cuota=r?bal*r/(1-Math.pow(1+r,-m)):bal/m } ei++ }
+    if (bal<=0.005) break;
+    const it=bal*r; const pr=i>=n-1?bal:Math.min(bal,cuota-it); bal=Math.max(0,bal-pr);
+    out.push({f:pds,k:i+1,cuota:it+pr,int:it,cap:pr,bal});
+  }
+  while (ei<ex.length){ const x=ex[ei++]; out.push({f:x.f,extra:true,imp:x.imp,bal:0,modo:x.modo,com:x.com||0}) }
+  return out;
+}
+function comPct(d){ if(d.comision!=null&&d.comision!=='') return +d.comision; const m=String(d.nota||'').match(/cancelaci[oó]n[^0-9]*([\d.,]+)\s*%/i); return m?+m[1].replace(',','.'):0 }
+function bestCash(){ const cs=cashProds().filter(p=>value(p)>0&&+p.tae>0).sort((a,b)=>(+b.tae)-(+a.tae)); return cs[0]||null }
+function debtCompare(d){ const L=loanAt(d); const c=bestCash(); const tae=c?+c.tae:0; const net=tae*(1-0.19); const com=comPct(d);
+  return {L,tin:+d.tin,tae,net,com,cn:c?.nombre||'',per1k:{int:1000*(+d.tin)/100,cash:1000*net/100,fee:1000*com/100},full:{int:L.intereses,fee:L.bal*com/100,bal:L.bal}} }
+function processDebtCharges(){
+  let n=0; const now=today();
+  for (const d of Object.values(S.debts)){ const c=S.prod[d.cuenta]; if(!c) continue; const from=d.cargado||now;
+    for (const r of loanRows(d)){ if(r.extra||r.f<=from||r.f>now) continue;
+      if (adjustValue(c,r.f,-r.cuota,`Calculado: cuota de ${d.nombre}`)){ addMov(c,{f:r.f,tipo:'salida',imp:Math.round(r.cuota*100)/100,ext:0,cls:'Interno',fia:'Dato',mov:`Cuota ${d.nombre}`,nota:''}); logChange('Cargo de cuota','deuda',d.id,d.nombre,`${eur(r.cuota,2)} desde ${c.nombre}`,{f:r.f,importe:-r.cuota,origen:'Automático'}); n++ }
+      d.cargado=r.f }
+    if (!d.cargado) d.cargado=now }
+  if (n){ schedule(); toast(`${n} cuota${n>1?'s':''} de préstamo descontada${n>1?'s':''} de tus cuentas`) }
+  return n;
+}
+function renderDeuda(){
+  const el=$('#deuda'); if(!el) return; const ds=Object.values(S.debts); const now=today();
+  const Ls=ds.map(d=>({d,L:loanAt(d),R:loanRows(d)})); const act=Ls.filter(x=>x.L.bal>0.005);
+  const tot=act.reduce((s,x)=>s+x.L.bal,0), cuota=act.reduce((s,x)=>s+x.L.cuota,0), intr=act.reduce((s,x)=>s+x.L.intereses,0);
+  const fin=act.map(x=>x.L.fin).sort().pop();
+  const nexts=act.map(x=>({d:x.d,r:x.R.find(r=>!r.extra&&r.f>now)})).filter(x=>x.r).sort((a,b)=>a.r.f<b.r.f?-1:1);
+  const cOpts=sel=>`<option value="">Ninguna (no descontar)</option>${cashProds().map(o=>`<option value="${esc(o.id)}" ${o.id===sel?'selected':''}>${esc(o.entidad)} — ${esc(o.nombre)}</option>`).join('')}`;
+  el.innerHTML=`<div class="card"><div class="tiles">
+      <div class="tile"${xi('deuda',{deuda:tot,n:act.length,cuota})}><span>Pendiente hoy</span><b class="num neg">${eur(tot,2)}</b></div>
+      <div class="tile"${xi('cuota_total',{v:cuota})}><span>Cuotas al mes</span><b class="num">${eur(cuota,2)}</b></div>
+      <div class="tile"${xi('d_int',{v:intr})}><span>Intereses por pagar</span><b class="num">${eur(intr)}</b></div>
+      <div class="tile"${xi('d_fin',{f:fin})}><span>Sin deudas el</span><b class="num">${sdate(fin)}</b></div></div></div>
+  ${nexts.length?`<div class="card"><div class="card-h">Próximos cargos</div>${nexts.map(({d,r})=>`<div class="row"${xi('d_next',{d,r})}>${avatar(d.entidad)}<span class="row-m"><b>${esc(d.nombre)}</b><small class="w">${fdate(r.f)} · int. ${eur(r.int,2)} · cap. ${eur(r.cap,2)}</small></span><span class="row-r num">${eur(r.cuota,2)}</span></div>`).join('')}</div>`:''}
+  ${Ls.map(({d,L,R})=>{ const past=R.filter(r=>r.f<=now).reverse(), fut=R.filter(r=>r.f>now); const cmp=debtCompare(d); const day=+String(d.primerPago).slice(8,10); const cta=S.prod[d.cuenta];
+    return `<div class="card"><div class="loan-h">${avatar(d.entidad)}<span class="row-m"><b>${esc(d.nombre)}</b><small>${esc(d.entidad)} · <span${xi('l_tin',{d})}>TIN ${String(d.tin).replace('.',',')} %</span></small></span>${L.bal<=0.005?'<span class="pill ok">Pagado</span>':''}</div>
+    <div class="prog"${xi('l_amort',{L,d})}><i style="width:${L.pctAmort*100}%"></i></div>
+    <div class="tiles three">
+      <div class="tile"${xi('l_bal',{L,d})}><span>Pendiente</span><b class="num">${eur(L.bal)}</b></div>
+      <div class="tile"${xi('l_cuota',{L,d:Object.assign({},d,{cuota:L.cuota})})}><span>Cuota</span><b class="num">${eur(L.cuota,2)}</b></div>
+      <div class="tile"${xi('l_rest',{L,d})}><span>Quedan</span><b class="num">${L.restantes}</b></div>
+      <div class="tile"${xi('l_int',{L,d})}><span>Intereses</span><b class="num">${eur(L.intereses)}</b></div>
+      <div class="tile"${xi('l_amort',{L,d})}><span>Devuelto</span><b class="num">${pctTxt(L.pctAmort)}</b></div>
+      <div class="tile"${xi('l_fin',{L,d})}><span>Fin</span><b class="num">${sdate(L.fin)}</b></div></div>
+    <div class="row"${xi('d_cargo',{d,day,cta:cta?.nombre})}><span class="row-m"><b>Se cobra el día ${day} de cada mes</b><small class="w">${cta?`Se descuenta solo de ${esc(cta.nombre)}`:'No se descuenta de ninguna cuenta (elígela en Editar)'}</small></span></div>
+    ${L.bal>0.005?`<div class="btns"><button class="btn ghost" data-debt="amort" data-did="${esc(d.id)}">Amortizar</button><button class="btn ghost" data-debt="edit" data-did="${esc(d.id)}">Editar</button></div>`:''}
+    ${L.bal>0.005&&cmp.tae?`<div class="claim"${xi('d_cmp',cmp)}>${ICON.info}<span>Por cada 1.000 € que amortices te ahorras unos <b>${eur(cmp.per1k.int)}</b> de intereses al año. En ${esc(cmp.cn)} esos 1.000 € te darían unos <b>${eur(cmp.per1k.cash)}</b> después de impuestos.${cmp.com?` Cancelar cuesta un ${String(cmp.com).replace('.',',')} %.`:''}</span></div>`:''}
+    <details class="kw"><summary>Pagos hechos <small>${past.length}</small></summary>${past.map(r=>r.extra?`<div class="row"${xi('d_row',r)}><span class="row-m"><b>Amortización anticipada</b><small>${sdate(r.f)} · ${r.modo==='cuota'?'bajar cuota':'acortar plazo'}${r.com?' · comisión '+eur(r.com,2):''}</small></span><span class="row-r num">${eur(r.imp,2)}</span></div>`:`<div class="row"${xi('d_row',r)}><span class="row-m"><b>Cuota ${r.k}</b><small class="w">${sdate(r.f)} · int. ${eur(r.int,2)} · cap. ${eur(r.cap,2)}</small></span><span class="row-r num">${eur(r.cuota,2)}<small>quedan ${eur(r.bal)}</small></span></div>`).join('')||'<p class="hint">Todavía no hay pagos.</p>'}</details>
+    <details class="kw"><summary>Pagos que quedan <small>${fut.length}</small></summary>${fut.map(r=>`<div class="row"${xi('d_row',r)}><span class="row-m"><b>Cuota ${r.k||''}</b><small class="w">${sdate(r.f)} · int. ${eur(r.int,2)} · cap. ${eur(r.cap,2)}</small></span><span class="row-r num">${eur(r.cuota,2)}<small>quedarán ${eur(r.bal)}</small></span></div>`).join('')||'<p class="hint">No quedan pagos.</p>'}</details>
+    <div class="btns"><button class="btn ghost sm danger" data-deld="${esc(d.id)}">Borrar préstamo</button></div></div>` }).join('')}
+  <details class="card edit"><summary>Añadir préstamo</summary>
+    <form id="fdebt"><label class="fl">Nombre<input name="nombre" required placeholder="Préstamo coche"></label><label class="fl">Entidad<input name="entidad" required></label>
+    <label class="fl">Capital inicial (€)<input name="capital" type="number" inputmode="decimal" step="0.01" required></label><label class="fl">TIN (%)<input name="tin" type="number" inputmode="decimal" step="0.001" required></label>
+    <label class="fl">Cuota (€)<input name="cuota" type="number" inputmode="decimal" step="0.01" required></label><label class="fl">Primera cuota (el día del mes es el día de cobro)<input name="primerPago" type="date" required></label>
+    <label class="fl">Número de cuotas<input name="n" type="number" inputmode="numeric" required></label>
+    <label class="fl">Comisión por cancelar (%)<input name="comision" type="number" inputmode="decimal" step="0.01"></label>
+    <label class="fl">Cuenta de la que se cobra<select name="cuenta">${cOpts('')}</select></label><button class="btn wide">Añadir préstamo</button></form></details>`;
+  el.querySelectorAll('[data-deld]').forEach(b=>b.onclick=()=>{ if(!confirm('¿Borrar este préstamo?'))return; logChange('Borrar préstamo','deuda',b.dataset.deld,S.debts[b.dataset.deld]?.nombre||''); delete S.debts[b.dataset.deld]; schedule(); render(); toast('Préstamo borrado') });
+  $('#fdebt',el).onsubmit=e=>{ e.preventDefault(); const f=new FormData(e.target); const d={id:uid(),nombre:f.get('nombre'),entidad:f.get('entidad'),capital:+f.get('capital'),tin:+f.get('tin'),cuota:+f.get('cuota'),primerPago:f.get('primerPago'),n:+f.get('n'),comision:f.get('comision')===''?null:+f.get('comision'),cuenta:f.get('cuenta')||'',cargado:today(),extras:[]};
+    S.debts[d.id]=d; logChange('Nuevo préstamo','deuda',d.id,d.nombre,`${eur(d.capital)} · TIN ${d.tin} %`,{importe:d.capital}); schedule(); render(); toast('Préstamo añadido') };
+}
+
+/* --- textos de ayuda v4 --- */
+function explain4(key,c){
+  const T=(t,v,what,you,tip)=>({t,v,what,you,tip});
+  switch(key){
+    case 'since24': return T('Desde 2024',c.who==='sp'?pct(c.sp):c.who==='msci'?pct(c.ms):pct(c.me),'La rentabilidad acumulada desde el 1 de enero de 2024: se encadenan los años (si un año ganas un 10 % y el siguiente otro 10 %, en total ganas un 21 %, no un 20 %).',`Tus inversiones: <b>${pctTxt(c.me)}</b>.<br>S&P 500 (EE. UU.): <b>${pctTxt(c.sp)}</b>.<br>MSCI World (todo el mundo desarrollado): <b>${pctTxt(c.ms)}</b>.`,'El S&P 500 te dice qué hace la bolsa americana; el MSCI World es la referencia más justa para una cartera global como la tuya. El año en curso del S&P 500 está en dólares; el resto, en euros.');
+    case 'y_msci': return T(`MSCI World en ${c.y}`,pct(c.ms),'Lo que ganó o perdió en euros un índice con unas 1.300 grandes empresas de 23 países desarrollados (con dividendos). Es la referencia natural para una cartera global como la tuya.',c.ms==null?'Sin dato.':`MSCI World: <b>${pctTxt(c.ms)}</b>. Tus inversiones: <b>${pctTxt(c.r)}</b>. ${c.r!=null?(c.r>=c.ms?'Ese año lo hiciste mejor que el índice.':'Ese año el índice lo hizo mejor.'):''}`,c.parcial?esc(S.cfg.mscref||MSCI_YTD.ref)+'. Lo puedes actualizar en Más › Ajustes.':'Fuente: ficha oficial de MSCI (rentabilidad neta en euros).');
+    case 'stress': return T(`Si la bolsa cae un ${Math.round(c.drop*100)} %`,eur(-c.loss),'Una prueba de estrés: calcula cuánto perderías hoy si la bolsa bajara de golpe. Las acciones y fondos de bolsa bajan lo mismo que el mercado; la cripto, una vez y media más; el oro, la plata y el efectivo no se mueven.',`Perderías unos <b>${eur(c.loss)}</b>: un ${pctTxt(c.loss/(c.inv||1))} de tus inversiones y un ${pctTxt(c.loss/(c.all||1))} de todo lo que tienes.`,'Es una simplificación: en una caída real cada fondo baja distinto. Como referencia, en 2022 el MSCI World en euros cayó un 12,8 % y en 2008 más de un 35 %.');
+    case 'stress_p': return T(c.n,eur(-c.l),'Lo que perdería este producto en la caída elegida.',`Vale ${eur(c.v)}. Clase: ${esc(c.cl||'—')}. Con una caída del ${Math.round(c.drop*100)} % perdería <b>${eur(c.l)}</b>.`,'');
+    case 'cost_tot': return T('Lo que te cuestan tus inversiones',eur(c.tot),'Lo que te cobran cada año gestoras y bancos por tus inversiones (gestión, distribución, custodia…). No lo ves como un cargo: se descuenta del valor del fondo, por eso pasa desapercibido.',`Al año: <b>${eur(c.tot)}</b>. Los productos de más del 1 % suman ${eur(c.V)} y cuestan de media un ${nf1(c.c)} %.`,'Se calcula con el coste anual de cada producto que tienes guardado (editable en cada producto).');
+    case 'cost_paid': return T('Pagado desde el inicio',eur(c.paid),'Una estimación de todo lo que has pagado en costes desde que abriste cada inversión: cada mes se aplica el coste anual a lo que valía.',`Aproximadamente <b>${eur(c.paid)}</b>.`,'Estimado: usa valores mensuales aproximados y el coste actual de cada producto.');
+    case 'cost_idx': return T(`Indexado a ${c.n} años`,'+'+eur(c.n===10?c.d10:c.d20),'Cuánto dinero más tendrías si tus productos caros costaran lo que un fondo indexado (0,2 % al año), con la misma rentabilidad antes de costes y siguiendo con tus aportaciones.',`Hoy: ${eur(c.V)} en productos caros, aportando ${eur(c.A)} al año, con un coste medio del ${nf1(c.c)} %.<br>Suponiendo un 6 % bruto al año para los dos, a ${c.n} años tendrías <b>${eur(c.n===10?c.d10:c.d20)} más</b> con el indexado.`,'Supuesto: la gestión activa no compensa su coste extra, que es lo que pasa en la mayoría de los casos. Traspasar entre fondos no paga impuestos, pero comprueba antes que el destino lo admite.'+(c.hi.some(r=>r.p.tipo==='Seguro')?' Incluye el PIAS, que no se puede pasar a un indexado sin perder el bonus y su ventaja fiscal: en su caso la cifra es solo orientativa.':''));
+    case 'cost_p': return T(c.p.nombre,eur(c.y),'Lo que te cuesta este producto cada año.',`Vale ${eur(c.v)} y cuesta un ${String(c.c).replace('.',',')} % al año: <b>${eur(c.y)}</b>.${c.c>1?` Indexado (0,2 %) costaría ${eur(c.v*0.002)}.`:''}`,'');
+    case 'fis_intro': return T('Fiscalidad','','Un resumen de lo que afecta a tus impuestos: pérdidas que puedes restar, ganancias y pérdidas que tienes "en el papel", intereses que tributan cada año y los avisos de bienes en el extranjero.','Toca cada dato para ver el detalle.','Es información orientativa, no una respuesta fiscal definitiva: confírmalo con tu gestor.');
+    case 'fis_perd': return T('Pérdidas por compensar',eur(c.pend),'Si un año pierdes dinero al vender, esa pérdida se puede restar de las ganancias de los 4 años siguientes. Si no la usas, caduca.',`Tienes <b>${eur(c.pend)}</b> de ${c.pAno}: puedes usarlas hasta la renta de <b>${c.cad}</b>.`,'Dato pendiente de confirmar con tu gestor (hay criterios distintos en 2023–2025). Se cambia en Más › Ajustes.');
+    case 'fis_lat': return T('Ganancias y pérdidas latentes',signed(c.gp+c.gn),'Lo que ganarías o perderías si vendieras hoy. Mientras no vendas, no pagas nada.',`Productos con ganancia: <b>${signed(c.gp)}</b>. Con pérdida: <b>${signed(c.gn)}</b>.`,'Calculado con lo aportado como coste. En los fondos traspasados, Hacienda usa el coste original.');
+    case 'fis_harv': return T('Aprovechar pérdidas','','Vender una inversión que está en pérdidas te permite restar esa pérdida de tus ganancias del año, y pagar menos impuestos.',`Candidatos: <b>${esc(c.negNoFund.map(r=>r.p.nombre).join(', '))}</b>.`,'Regla antiaplicación: si recompras lo mismo en los 2 meses anteriores o posteriores (1 año si no cotiza en un mercado europeo), la pérdida no se puede restar hasta que vendas lo recomprado.');
+    case 'fis_2m': return T('Posible regla de los 2 meses','',`Vendiste ${esc(c.n)} y compraste lo mismo con menos de 2 meses de diferencia.`,'Si esa venta dio pérdidas, Hacienda no te deja restarlas hasta que vendas lo que recompraste.','Revísalo con tu gestor al hacer la renta.');
+    case 'fis_int': return T('Intereses de tus cuentas',eur(c.intY),'Los intereses de las cuentas remuneradas tributan cada año en la renta (base del ahorro, 19 % los primeros 6.000 €), aunque no saques el dinero.',`Con tus saldos y tipos actuales: <b>${eur(c.intY)}</b> al año y unos <b>${eur(c.intTax)}</b> de impuestos.`,'El banco ya te retiene un 19 % al pagarlos, así que normalmente no hay sorpresa en la renta.');
+    case 'fis_720': return T(c.lab,eur(c.v),'Si tienes más de 50.000 € en un bloque de bienes en el extranjero (cuentas, valores o cripto), tienes que presentar una declaración informativa (720, o 721 para la cripto). No es un impuesto, pero no hacerlo se sanciona.',`Llevas <b>${eur(c.v)}</b> de 50.000 €.${c.ps.length?'<br>Incluye: '+esc(c.ps.join(', '))+'.':''}`,'Qué cuenta como "en el extranjero" depende de dónde esté la entidad (las sucursales en España con IBAN español normalmente no cuentan). Revísalo con tu gestor.');
+    case 'd_int': return T('Intereses por pagar',eur(c.v),'Lo que pagarás en intereses de aquí al final si no amortizas antes.',`<b>${eur(c.v)}</b>`,'Amortizar antes reduce esta cifra.');
+    case 'd_fin': return T('Sin deudas',fdate(c.f),'El día en que pagarás la última cuota si sigues el calendario.',`<b>${fdate(c.f)}</b>`,'');
+    case 'd_next': return T(`Próximo cargo: ${c.d.nombre}`,eur(c.r.cuota,2),'La próxima cuota que te cobrarán. Una parte son intereses (lo que cobra el banco) y otra es capital (lo que devuelves de verdad).',`${fdate(c.r.f)}: intereses ${eur(c.r.int,2)} + capital ${eur(c.r.cap,2)} = <b>${eur(c.r.cuota,2)}</b>. Después quedarán ${eur(c.r.bal,2)}.`,'La app descuenta la deuda sola cada mes en la fecha de cobro.');
+    case 'd_cargo': return T('Día de cobro',`Día ${c.day}`,'El día del mes en que el banco te cobra la cuota. Ese día la app reduce la deuda automáticamente y, si eliges una cuenta, también resta la cuota de su saldo.',c.cta?`Se descuenta de <b>${esc(c.cta)}</b>.`:'Ahora no se descuenta de ninguna cuenta.','Puedes cambiar la cuenta en "Editar". Si actualizas el saldo a mano después, manda el saldo que pongas tú.');
+    case 'd_cmp': return T('¿Amortizar o guardar el dinero?','','Amortizar es como invertir con una rentabilidad garantizada igual al tipo del préstamo. Compara con lo que te da tu mejor cuenta después de impuestos.',`Préstamo: <b>${String(c.tin).replace('.',',')} %</b>. Tu mejor cuenta (${esc(c.cn)}): ${String(c.tae).replace('.',',')} % bruto ≈ <b>${nf1(c.net)} %</b> neto.<br>Si cancelas todo hoy (${eur(c.full.bal)}): dejas de pagar ${eur(c.full.int)} de intereses${c.com?` y pagas ${eur(c.full.fee)} de comisión`:''}.`,'Mientras el tipo del préstamo sea mayor que lo que gana tu cuenta, amortizar sale mejor en números. Lo que pierdes es liquidez: valora si necesitarás ese dinero pronto (por ejemplo, para la vivienda).');
+    case 'd_row': return c.extra?T('Amortización anticipada',eur(c.imp,2),'Un pago extra para devolver el préstamo antes.',`${fdate(c.f)} · ${c.modo==='cuota'?'bajar cuota':'acortar plazo'}${c.com?' · comisión '+eur(c.com,2):''}. Después quedaban ${eur(c.bal,2)}.`,''):T(`Cuota ${c.k||''}`,eur(c.cuota,2),'Una cuota mensual: parte intereses y parte capital.',`${fdate(c.f)}: intereses ${eur(c.int,2)} + capital ${eur(c.cap,2)}. Pendiente después: ${eur(c.bal,2)}.`,'Calculado con el TIN y el calendario del préstamo.');
+  }
+  return null;
 }
 
 /* ---------- arranque ---------- */
