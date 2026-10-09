@@ -156,6 +156,7 @@ async function load(){
     await pull();
     loopCount(true);
     try{ if(processDebtCharges()) render() }catch(e){ dlog('Cargos préstamo: '+e.message) }
+    try{ const np=autoPeriodic(); if(np){ render(); toast(`${np} aportaciones periódicas apuntadas`) } }catch(e){ dlog('Periódicas: '+e.message) }
     fetchIPC(); fetchFX();
   }catch(e){ dlog('Error general: '+(e.errorCode||'')+' '+String(e.message||'').slice(0,120)); showGate('No se ha podido conectar con OneDrive ('+(e.errorCode||e.message||'error')+'). Vuelve a intentarlo.') }
 }
@@ -244,6 +245,7 @@ const CATTXT = {
   'Efectivo invertido':'Dinero en cuentas remuneradas y depósitos. No baja de valor y te paga un interés, pero normalmente gana menos de lo que suben los precios.',
   'Efectivo':'Efectivo libre: dinero en cuentas que no pagan nada, disponible para gastar o para invertir. Es útil para el día a día, pero cada año compra un poco menos por culpa de la inflación.'};
 function explain(key,c){
+  const _r8=explain8(key,c); if(_r8) return _r8;
   const _r7=explain7(key,c); if(_r7) return _r7;
   const _r6=explain6(key,c); if(_r6) return _r6;
   const _r5=explain5(key,c); if(_r5) return _r5;
@@ -318,7 +320,7 @@ let TAB='inicio';
 const TITLES={inicio:'Inicio',activos:'Activos',anadir:'Añadir',analisis:'Análisis',historico:'Histórico',deuda:'Deuda',mas:'Más'};
 function go(t){ TAB=t; document.querySelectorAll('.tb').forEach(b=>b.setAttribute('aria-selected',b.dataset.tab===t));
   document.querySelectorAll('main section').forEach(s=>s.hidden=s.id!==t); $('#ttl').textContent=TITLES[t];
-  if (t==='anadir') renderAct(); if (t==='historico') renderHist(); if (t==='analisis') renderAnalisis(); if (t==='deuda') renderDeuda(); if (t==='inicio') setTimeout(()=>drawDonuts($('#inicio')),0); $('main').scrollTop=0 }
+  if (t==='anadir') renderAct(); if (t==='historico') renderHist(); if (t==='analisis') renderAnalisis(); if (t==='deuda') renderDeuda(); if (t==='activos') setTimeout(drawActChart,0); if (t==='inicio') setTimeout(()=>drawDonuts($('#inicio')),0); $('main').scrollTop=0 }
 document.querySelectorAll('.tb').forEach(b=>b.onclick=()=>{ if(b.dataset.tab==='anadir') actMode=null; go(b.dataset.tab) });
 
 /* ---------- render ---------- */
@@ -339,7 +341,7 @@ function renderActivos(){
   const fl={activas:p=>p.estado!=='cerrado'&&(value(p)>0||p.categoria!=='Efectivo'),'Inversión':p=>p.estado!=='cerrado'&&p.categoria==='Inversión','Efectivo invertido':p=>p.estado!=='cerrado'&&p.categoria==='Efectivo invertido','Efectivo':p=>p.estado!=='cerrado'&&p.categoria==='Efectivo',cerradas:p=>p.estado==='cerrado'};
   const closed=posFilter==='cerradas';
   const list=Object.values(S.prod).filter(fl[posFilter]).map(p=>({p,s:stats(p)})).sort((a,b)=>closed?(b.p.cierre||'').localeCompare(a.p.cierre||''):b.s.v-a.s.v);
-  const T={v:0,neto:0,gan:0}; list.forEach(({s})=>{T.v+=s.v;T.neto+=s.neto;T.gan+=s.gan||0});
+  const T={v:0,neto:0,gan:0}; list.forEach(({p,s})=>{T.v+=s.v; if(isInv(p)){T.neto+=s.neto;T.gan+=s.gan||0}});
   const chips=[['activas','Todos'],['Inversión','Inversión'],['Efectivo invertido','Efectivo invertido'],['Efectivo','Efectivo'],['cerradas','Cerrados']];
   el.innerHTML=`<div class="chips">${chips.map(([k,l])=>`<button class="chip" data-f="${k}" aria-pressed="${posFilter===k}">${l}</button>`).join('')}</div>
   ${closed?'':`<div class="card"><div class="tiles three">
@@ -349,7 +351,7 @@ function renderActivos(){
   <div class="card list">${list.map(({p,s})=>`<div class="row tap" data-pid="${esc(p.id)}">${avatar(p.entidad)}
     <span class="row-m"><b>${esc(p.nombre)}</b><small>${s.est?`<em${xi('p_est',{})}>≈ estimado</em> · `:''}${esc(p.entidad)} · ${esc(p.tipo)}</small></span>
     <span class="row-r">${closed?`<b class="num"${xi('c_fin',{f:p.cierre})}>${sdate(p.cierre)}</b><small class="num ${s.gan>=0?'pos':'neg'}"${xi('p_gan',{gan:s.gan,v:0,sal:s.sal,ent:s.ent})}>${signed(s.gan)}</small>`
-      :`<b class="num"${xi('p_valor',{v:s.v,f:s.lv?.f,stale:s.stale})}>${eur(s.v)}</b>${s.gan!=null&&p.categoria!=='Efectivo'?`<small class="num ${s.gan>=0?'pos':'neg'}"${xi('p_pct',{pct:s.pct,gan:s.gan,ent:s.ent})}>${signed(s.gan)} · ${pct(s.pct)}</small>`:''}`}</span></div>`).join('')||'<div class="empty">Nada en este grupo.</div>'}</div>`;
+      :`<b class="num"${xi('p_valor',{v:s.v,f:s.lv?.f,stale:s.stale})}>${eur(s.v)}</b>${s.gan!=null&&isInv(p)?`<small class="num ${s.gan>=0?'pos':'neg'}"${xi('p_pct',{pct:s.pct,gan:s.gan,ent:s.ent})}>${signed(s.gan)} · ${pct(s.pct)}</small>`:''}`}</span></div>`).join('')||'<div class="empty">Nada en este grupo.</div>'}</div>`;
   el.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{posFilter=b.dataset.f;renderActivos()});
 }
 
@@ -867,7 +869,7 @@ async function importUpdate(file){
   for (const r of AP){ const p=S.prod[String(r.id||'')]; if(!p||r.aportado===''||r.aportado==null) continue; const before=stats(p).neto; const d=reconcile(p,num(r.aportado),r.fecha?ds(r.fecha):today(),'Según tus registros'); if(d){ act++; logChange('Ajustar aportado','producto',p.id,p.nombre,`${eur(before,2)} → ${eur(num(r.aportado),2)}`,{antes:before,despues:num(r.aportado),origen:'Importación'}) } }
   S.re=S.re||{}; S.reflows=S.reflows||[]; let nre=0;
   for (const r of IR){ const id=String(r.id||'').trim(); if(!id) continue; const o=S.re[id]||(S.re[id]={id}); nre++;
-    REF.forEach(k=>{ if(k==='id'||r[k]===''||r[k]==null) return; o[k]=['valor','hip_saldo','hip_amort','coste_local','fx_manual'].includes(k)?num(r[k]):['valor_fecha','hip_fecha'].includes(k)?ds(r[k]):String(r[k]) }) }
+    REF.forEach(k=>{ if(k==='id'||r[k]===''||r[k]==null) return; o[k]=['valor','hip_saldo','hip_amort','hip_cuota','hip_tin','coste_local','fx_manual'].includes(k)?num(r[k]):['valor_fecha','hip_fecha','hip_fin'].includes(k)?ds(r[k]):String(r[k]) }) }
   const ids=[...new Set(IF.map(r=>String(r.inmueble_id||'')).filter(Boolean))];
   if (ids.length){ S.reflows=S.reflows.filter(x=>!ids.includes(x.re)); IF.forEach(r=>{ if(!r.inmueble_id||!r.fecha) return; S.reflows.push({re:String(r.inmueble_id),f:ds(r.fecha),tipo:String(r.tipo),eur:num(r.euros),local:num(r.importe_local),fia:String(r.fiabilidad||'Dato'),fuente:String(r.fuente||''),nota:String(r.nota||'')}) }) }
   if (nre) { nuevos+=0; act+=nre; setTimeout(fetchFX,0) }
@@ -881,7 +883,7 @@ function explain3(key,c){
     case 'ext_total': return T('Invertido de tu bolsillo',eur(c.ext),'Lo que has metido en tus inversiones (fondos, ETF, acciones, cripto, seguros…) desde tus cuentas, menos lo que has sacado de vuelta a ellas. Los traspasos entre inversiones no cuentan porque el dinero solo cambia de sitio.',`En total, <b>${eur(c.ext)}</b> invertidos en neto desde tu primera inversión.`,'Una parte de esta cifra está reconstruida (aportaciones antiguas sin documento).');
     case 'gan_total': return T('Rentabilidad de tus inversiones',eur(c.gan),'Lo que han ganado tus inversiones por encima de lo que pusiste. Si metiste 100 € y ahora valen 120 €, has ganado 20 €. El efectivo no cuenta aquí: lo que entra en tus cuentas es tu sueldo, no rentabilidad.',`Valen hoy ${eur(c.tv)} y has invertido ${eur(c.ext)}.<br><b>${eur(c.tv)} − ${eur(c.ext)} = ${eur(c.gan)}</b>`,'Antes de impuestos. Incluye las inversiones ya cerradas.');
     case 'xirr_total': return T('Rentabilidad anual de tus inversiones',pct(c.x),'Cuánto han crecido tus inversiones de media cada año, teniendo en cuenta cuándo metiste cada euro (XIRR). Es la forma más justa de medir lo que has ganado tú.',`De media, <b>${pctTxt(c.x)} al año</b>. Los precios suben ahora un ${ipc} al año.`,'No incluye el efectivo, que se mide aparte.');
-    case 'activos': return T('Activos sin deudas',eur(c.v),'Todo lo que tienes sumado (inversiones, efectivo y, si lo activas, tu parte neta de los inmuebles), sin restar tus préstamos en euros.',`Inversiones ${eur(c.inv)} + efectivo ${eur(c.cash)}${c.re?` + inmuebles (tu parte neta) ${eur(c.re)}`:''} = <b>${eur(c.v)}</b>.`,'Si restas tus préstamos sale tu patrimonio neto.');
+    case 'activos': return T('Activos sin deudas',eur(c.v),'Todo lo que tienes sumado (inversiones, efectivo, inmuebles por su valor completo y lo que te deben), sin restar ninguna deuda.',`Inversiones ${eur(c.inv)} + efectivo ${eur(c.cash)}${c.re?` + inmuebles (valor completo) ${eur(c.re)}`:''}${c.pc?` + por cobrar ${eur(c.pc)}`:''} = <b>${eur(c.v)}</b>.`,'Si restas tus préstamos sale tu patrimonio neto.');
     case 'inv_val': return T('Tus inversiones hoy',eur(c.tv),'Lo que valen ahora tus inversiones: el dinero que has puesto más lo que ha ganado (o perdido).',`Invertido ${eur(c.ext)} + rentabilidad ${signed(c.gan)} = <b>${eur(c.tv)}</b>.`,'');
     case 'year_new': return T(`Invertido en ${c.y}`,eur(c.v),'Lo que has metido en tus inversiones este año desde tus cuentas, menos lo que has retirado. Los traspasos entre inversiones no cuentan.',`<b>${eur(c.v)}</b> en neto.`,'');
     case 'ext_y': return T(`Invertido en ${c.y}`,eur(c.v),'Lo que metiste en inversiones ese año desde tus cuentas, menos lo que retiraste.',`<b>${eur(c.v)}</b>`,'');
@@ -922,13 +924,7 @@ function renderInicio(){
       <span class="pill"${xi('gan_total',{gan:t.gan,tv:t.tv,ext:t.ext,real:t.real})}>${signed(t.gan)} rentabilidad</span>
       <span class="pill"${xi('xirr_total',{x:t.x})}>${pct(t.x)} al año</span>
     </div>
-    <div class="hero-bar">${CATS.map(c=>`<i style="width:${t.by[c]/tot*100}%;background:var(${CATCOL[c]})"${xi('cat',{cat:c,v:t.by[c],share:t.by[c]/tot})}></i>`).join('')}${t.re&&t.re.inc>0?`<i style="width:${t.re.inc/tot*100}%;background:${RECOL}"></i>`:''}${t.pc&&t.pc.inc>0?`<i style="width:${t.pc.inc/tot*100}%;background:${PCCOL}"></i>`:''}</div>
-  </div>
-  <div class="actions">
-    <button class="act" data-go="anadir" data-mode="valores"><span>${ICON.refresh}</span>Valores</button>
-    <button class="act" data-saldos><span>${ICON.down}</span>Saldos</button>
-    <button class="act" data-go="anadir" data-mode="nueva"><span>${ICON.plus}</span>Nueva</button>
-    <button class="act" data-cash><span><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/></svg></span>Efectivo</button>
+    <div class="hero-bar">${CATS.map(c=>`<i style="width:${t.by[c]/tot*100}%;background:var(${CATCOL[c]})"${xi('cat',{cat:c,v:t.by[c],share:t.by[c]/tot})}></i>`).join('')}${t.re&&t.re.val>0?`<i style="width:${t.re.val/tot*100}%;background:${RECOL}"${xi('re_bar',{v:t.re.val,hip:t.re.hip,share:t.re.val/tot})}></i>`:''}${t.pc&&t.pc.inc>0?`<i style="width:${t.pc.inc/tot*100}%;background:${PCCOL}"${xi('pc',{inc:t.pc.inc,exc:t.pc.exc})}></i>`:''}</div>
   </div>
   <div class="card"><div class="card-h">Tus inversiones</div>
     <div class="big num"${xi('inv_val',{tv:t.tv,ext:t.ext,gan:t.gan})}>${eur(t.tv)}</div>
@@ -938,8 +934,8 @@ function renderInicio(){
       <div class="tile"${xi('xirr_total',{x:t.x})}><span>Al año</span><b class="num">${pct(t.x)}</b></div>
     </div>${Math.abs(t.real||0)>1?`<p class="hint"${xi('real',{real:t.real,lat:t.tv-t.ext})}>De la rentabilidad, ${signed(t.real)} ya los ganaste al cerrar inversiones y ${signed(t.tv-t.ext)} los llevas en las abiertas.</p>`:''}</div>
   <div class="card"><div class="tiles">
-    <div class="tile"${xi('activos',{v:t.activos,inv:t.tv,cash:t.cash,re:t.re?.inc||0})}><span>Activos sin deudas</span><b class="num">${eur(t.activos)}</b></div>
-    <div class="tile"${xi('deuda',{deuda:t.deuda,n:nd.length,cuota})}><span>Deuda</span><b class="num neg">${eur(t.deuda)}</b></div>
+    <div class="tile"${xi('activos',{v:t.activos,inv:t.tv,cash:t.cash,re:t.re?.val||0,pc:t.pc?.inc||0})}><span>Activos sin deudas</span><b class="num">${eur(t.activos)}</b></div>
+    <div class="tile"${xi('deuda',{deuda:t.deuda,eurd:t.deudaEUR,hip:t.re?.hip||0,n:nd.length,cuota})}><span>Deuda</span><b class="num neg">${eur(t.deuda)}</b></div>
     <div class="tile"${xi('cash_total',{tot:t.cash,ef:t.by['Efectivo'],ei:t.by['Efectivo invertido'],n:cashProds().length})}><span>Efectivo</span><b class="num">${eur(t.cash)}</b></div>
     <div class="tile"${xi('ipc_now',{})}><span>Inflación hoy</span><b class="num">${ipc}</b></div>
   </div><button class="linkbtn" data-cash>Ver tus cuentas de efectivo ${ICON.chev}</button></div>
@@ -1105,7 +1101,7 @@ function workbookFromState(){
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet([{ipc:S.cfg.ipc,ipc_ref:S.cfg.ipcRef||'',avisos:(S.cfg.avisos||[]).join(' | '),perdidas_pendientes:S.cfg.perdidas??'',sp500_ytd:S.cfg.sp500??'',sp500_ref:S.cfg.sp500ref||'',msci_ytd:S.cfg.msci??'',msci_ref:S.cfg.mscref||'',perdidas_ano:S.cfg.perdidasAno??''}]),'Ajustes');
   return XLSX.write(wb,{type:'array',bookType:'xlsx'});
 }
-const REF=['id','nombre','ubicacion','uso','divisa','valor','valor_fecha','valor_fuente','hip_saldo','hip_fecha','hip_amort','coste_local','fx_manual','incluir','cobro_desde','imp_hoja','imp_saldo','imp_neto','claves','claves_pdf'];
+const REF=['id','nombre','ubicacion','uso','divisa','valor','valor_fecha','valor_fuente','hip_saldo','hip_fecha','hip_amort','hip_cuota','hip_tin','hip_fin','hip_entidad','coste_local','fx_manual','incluir','cobro_desde','imp_hoja','imp_saldo','imp_neto','claves','claves_pdf'];
 function stateFromWorkbook(buf){
   const wb=XLSX.read(buf,{type:'array'});
   const sh=n=>wb.Sheets[n]?XLSX.utils.sheet_to_json(wb.Sheets[n],{defval:''}):[];
@@ -1122,7 +1118,7 @@ function stateFromWorkbook(buf){
   Object.values(prod).forEach(p=>{p.movs.sort((a,b)=>a.f<b.f?-1:1);p.vals.sort((a,b)=>a.f<b.f?-1:1)});
   const debts={}; Dd.forEach(r=>{ debts[r.id]={id:String(r.id),nombre:r.nombre,entidad:r.entidad,capital:num(r.capital),tin:num(r.tin),cuota:num(r.cuota),primerPago:ds(r.primer_pago),n:num(r.n_cuotas),nota:r.nota,comision:num(r.comision_cancel),cuenta:String(r.cuenta_cargo||''),cargado:r.cargado_hasta?ds(r.cargado_hasta):'',extras:(()=>{ try{ return r.amortizaciones?JSON.parse(r.amortizaciones):[] }catch(e){ return [] } })()} });
   const cfg=Object.assign({}, S.cfg); const a=A[0]; if (a){ if(a.ipc!=='') cfg.ipc=num(a.ipc); if(a.ipc_ref) cfg.ipcRef=String(a.ipc_ref); cfg.avisos=String(a.avisos||'').split('|').map(s=>s.trim()).filter(Boolean); if(a.perdidas_pendientes!==''&&a.perdidas_pendientes!=null) cfg.perdidas=num(a.perdidas_pendientes); if(a.sp500_ytd!==''&&a.sp500_ytd!=null) cfg.sp500=num(a.sp500_ytd); if(a.sp500_ref) cfg.sp500ref=String(a.sp500_ref); if(a.msci_ytd!==''&&a.msci_ytd!=null) cfg.msci=num(a.msci_ytd); if(a.msci_ref) cfg.mscref=String(a.msci_ref); if(a.perdidas_ano!==''&&a.perdidas_ano!=null) cfg.perdidasAno=num(a.perdidas_ano) }
-  const RE={}; sh('Inmuebles').forEach(r=>{ if(!r.id) return; const o={}; REF.forEach(k=>o[k]=r[k]===''?null:r[k]); o.id=String(r.id); ['valor','hip_saldo','hip_amort','coste_local','fx_manual'].forEach(k=>o[k]=num(r[k])); ['valor_fecha','hip_fecha'].forEach(k=>o[k]=r[k]?ds(r[k]):''); ['claves','claves_pdf','nombre','ubicacion','uso','divisa','valor_fuente','incluir','cobro_desde','imp_hoja','imp_saldo','imp_neto'].forEach(k=>o[k]=String(r[k]??'')); RE[o.id]=o });
+  const RE={}; sh('Inmuebles').forEach(r=>{ if(!r.id) return; const o={}; REF.forEach(k=>o[k]=r[k]===''?null:r[k]); o.id=String(r.id); ['valor','hip_saldo','hip_amort','hip_cuota','hip_tin','coste_local','fx_manual'].forEach(k=>o[k]=num(r[k])); ['valor_fecha','hip_fecha','hip_fin'].forEach(k=>o[k]=r[k]?ds(r[k]):''); o.hip_entidad=String(r.hip_entidad??''); ['claves','claves_pdf','nombre','ubicacion','uso','divisa','valor_fuente','incluir','cobro_desde','imp_hoja','imp_saldo','imp_neto'].forEach(k=>o[k]=String(r[k]??'')); RE[o.id]=o });
   const RF=sh('InmueblesFlujos').filter(r=>r.inmueble_id&&r.fecha).map(r=>({re:String(r.inmueble_id),f:ds(r.fecha),tipo:String(r.tipo),eur:num(r.euros),local:num(r.importe_local),fia:String(r.fiabilidad||'Dato'),fuente:String(r.fuente||''),nota:String(r.nota||'')}));
   return {prod,debts,cfg,log:LG,re:RE,reflows:RF};
 }
@@ -1476,6 +1472,10 @@ function openRE(id){
         <label class="fl">Saldo de la hipoteca (${cur})<input type="number" inputmode="decimal" step="0.01" name="hip_saldo" value="${r.hip_saldo??''}"></label>
         <label class="fl">Fecha de ese saldo<input type="date" name="hip_fecha" value="${r.hip_fecha||''}"></label>
         <label class="fl">Cuánto baja la hipoteca al mes (${cur}, aprox.)<input type="number" inputmode="decimal" step="0.01" name="hip_amort" value="${r.hip_amort??''}"></label>
+        <label class="fl">Cuota de la hipoteca (${cur})<input type="number" inputmode="decimal" step="0.01" name="hip_cuota" value="${r.hip_cuota??''}"></label>
+        <label class="fl">TIN de la hipoteca (%)<input type="number" inputmode="decimal" step="0.01" name="hip_tin" value="${r.hip_tin??''}"></label>
+        <label class="fl">Fin de la hipoteca<input type="date" name="hip_fin" value="${r.hip_fin||''}"></label>
+        <label class="fl">Banco de la hipoteca<input name="hip_entidad" value="${esc(r.hip_entidad||'')}"></label>
         <label class="fl">Coste total de compra y reforma (${cur})<input type="number" inputmode="decimal" step="0.01" name="coste_local" value="${r.coste_local??''}"></label>
         <label class="fl">Tipo de cambio de reserva (${CURSYM[cur]||cur} por €)<input type="number" inputmode="decimal" step="0.0001" name="fx_manual" value="${r.fx_manual??''}"></label>
         <label class="fl">Lo que debes vigilar (un punto por línea)<textarea name="claves" rows="5">${esc(r.claves||'')}</textarea></label>
@@ -1484,7 +1484,7 @@ function openRE(id){
   openSheet(dlg); dlg.scrollTop=0; renderDocs(r);
   if(!dlg._reh){ dlg._reh=1; dlg.addEventListener('close',()=>{ delete dlg.dataset.re }) }
   $('#fre',dlg).onsubmit=e=>{ e.preventDefault(); const f=new FormData(e.target); const before=`${loc(r.valor,cur)} · hipoteca ${loc(r.hip_saldo,cur)}`;
-    ['valor','hip_saldo','hip_amort','coste_local','fx_manual'].forEach(k=>r[k]=f.get(k)===''?null:+f.get(k)); ['valor_fecha','hip_fecha','valor_fuente'].forEach(k=>r[k]=String(f.get(k)||'')); r.claves=String(f.get('claves')||'').trim();
+    ['valor','hip_saldo','hip_amort','hip_cuota','hip_tin','coste_local','fx_manual'].forEach(k=>r[k]=f.get(k)===''?null:+f.get(k)); ['valor_fecha','hip_fecha','valor_fuente','hip_fin','hip_entidad'].forEach(k=>r[k]=String(f.get(k)||'')); r.claves=String(f.get('claves')||'').trim();
     logChange('Editar inmueble','inmueble',r.id,r.nombre,`${before} → ${loc(r.valor,cur)} · hipoteca ${loc(r.hip_saldo,cur)}`); schedule(); render(); openRE(id); toast('Cambios guardados') };
 }
 function openREFlow(id){
@@ -1609,6 +1609,169 @@ function explain7(key,c){
   if (key==='pc') return T('Por cobrar',eur(c.inc),'Dinero que es tuyo pero todavía no tienes: lo que te deben o devoluciones pendientes.',`Cuenta en el total: <b>${eur(c.inc)}</b>.${c.exc?`<br>Condicionado y fuera del total: ${eur(c.exc)}.`:''}`,'Si algo depende de una condición futura, mejor no contarlo hasta que sea seguro.');
   return null;
 }
+
+
+/* ================== V8: un solo sitio para añadir, gráficas en Activos, hipoteca del piso en Deuda, datos automáticos ================== */
+/* --- inmuebles por su valor completo; la hipoteca va a Deuda (el neto no cambia) --- */
+reTot=function(){ let inc=0, all=0, val=0, hip=0; for (const r of Object.values(S.re||{})){ const c=reCalc(r); all+=c.netoE; if(r.incluir!=='no'){ inc+=c.netoE; val+=c.valE; hip+=c.hipE } } return {inc,all,val,hip,n:Object.keys(S.re||{}).length} };
+const _totals3=totals;
+totals=function(){ const t=_totals3(); const R=t.re||{inc:0,val:0,hip:0}; t.activos+=R.val-R.inc; t.deuda+=R.hip; t.deudaEUR=t.deuda-R.hip; return t };
+reRows=function(t){ const tot=t.activos||1; return Object.values(S.re||{}).map(r=>{ const c=reCalc(r); const inc=r.incluir!=='no';
+  return `<div class="row tap" data-re="${esc(r.id)}"><span class="dot" style="background:${RECOL}"></span><span class="row-m"><b>Inmuebles</b><small class="w">${esc(r.nombre)} · hipoteca ${eur(c.hipE)} · tuyo ${eur(c.netoE)}${inc?' · '+pctTxt(c.valE/tot)+' del total':' · no cuenta'}</small></span><span class="row-r num">${eur(c.valE)}</span></div>` }).join('') };
+function explain8(key,c){
+  const T=(t,v,what,you,tip)=>({t,v,what,you,tip});
+  switch(key){
+    case 'deuda': return T('Deuda pendiente',eur(c.deuda),'Lo que todavía tienes que devolver: tus préstamos y, si cuentas el piso, su hipoteca.',`Préstamos en euros: ${eur(c.eurd??c.deuda)}.${c.hip?`<br>Hipoteca del piso: ${eur(c.hip)} (la paga el alquiler).`:''}<br><b>Total: ${eur(c.deuda)}</b>`,'La deuda baja sola cada mes en la fecha de cobro. Detalle en la pestaña Deuda.');
+    case 're_bar': return T('Inmuebles',eur(c.v),'El valor completo de tus inmuebles. Su hipoteca está dentro de "Deuda", así que tu patrimonio neto solo cuenta tu parte.',`Valor ${eur(c.v)} − hipoteca ${eur(c.hip)} = tu parte ${eur(c.v-c.hip)}. Es un ${pctTxt(c.share)} de todo lo que tienes.`,'Toca la línea Inmuebles para ver la ficha.');
+    case 'act_chart': return T(c.t,'',c.what,'Toca la gráfica para ver el valor de cada mes.','Empieza en diciembre de 2023: antes no hay datos reales suficientes. Entre fechas con datos reales la línea es aproximada.');
+    case 'mk': return T(c.n,c.v,c.what,c.you,c.tip);
+  }
+  return null;
+}
+
+/* --- un solo sitio para añadir información: el botón + --- */
+const _catOf0=catOf; catOf=t=>t==='Por cobrar'?PC:_catOf0(t); if(!TIPOS.includes('Por cobrar')) TIPOS.push('Por cobrar');
+function autoPeriodic(){ const pend=pendingPeriodic(); if(!pend.length) return 0; const by={}; pend.forEach(x=>(by[x.pid]=by[x.pid]||[]).push(x));
+  for (const [pid,xs] of Object.entries(by)){ const p=S.prod[pid]; xs.forEach(x=>addMov(p,{f:x.f,tipo:'entrada',imp:x.imp,ext:x.imp,cls:'Dinero nuevo',fia:'Periódica',mov:'Aportación periódica',nota:'Registrada automáticamente'}));
+    p.periodica.hasta=xs[xs.length-1].f; adjustValue(p,xs[xs.length-1].f,xs.reduce((s,x)=>s+x.imp,0),'Calculado: valor + aportaciones periódicas');
+    logChange('Aportaciones periódicas','producto',p.id,p.nombre,`${xs.length} registradas automáticamente`,{f:xs[xs.length-1].f,importe:xs.reduce((s,x)=>s+x.imp,0),origen:'Automático'}) }
+  schedule(); return pend.length }
+renderAct=function(){
+  const el=$('#anadir'); if(!el) return;
+  const opts=[['actualizar',ICON.refresh,'Actualizar valores y saldos','Lo que vale hoy cada inversión y lo que hay en cada cuenta, en una sola pantalla'],
+    ['movimiento',ICON.repeat,'Aportar, retirar o traspasar','Mover dinero de una inversión: aportar, retirar, traspasar o cerrar'],
+    ['nueva',ICON.plus,'Crear algo nuevo','Inversión, cuenta, préstamo o dinero que te deben'],
+    ['importar',ICON.down,'Importar un archivo','Un Excel de actualización o el Excel de tu alquiler']];
+  if (!opts.some(o=>o[0]===actMode)){ actMode=null;
+    el.innerHTML=`<div class="card list">${opts.map(([k,ic,t,s])=>`<button class="row tap opt" data-m="${k}"><span class="av ic">${ic}</span><span class="row-m"><b>${t}</b><small class="w">${s}</small></span><span class="chev">${ICON.chev}</span></button>`).join('')}</div>
+      <p class="hint" style="margin:0 6px">Todo se puede hacer desde aquí. Dentro de cada producto, cuenta o préstamo tienes además los mismos botones como atajo. Las aportaciones periódicas se apuntan solas cada día que abres la app.</p>`;
+    el.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>{ actMode=b.dataset.m; renderAct() }); return }
+  const title=opts.find(o=>o[0]===actMode)[2]; let body='';
+  if (actMode==='actualizar'){
+    const ps=Object.values(S.prod).filter(p=>p.estado!=='cerrado'&&(isInv(p)||isCash(p))); const by={};
+    ps.forEach(p=>(by[p.entidad||'Otros']=by[p.entidad||'Otros']||[]).push(p));
+    const ents=Object.keys(by).sort((a,b)=>by[b].reduce((s,p)=>s+value(p),0)-by[a].reduce((s,p)=>s+value(p),0));
+    body=`<form id="fupd"><label class="fl">Fecha<input type="date" name="f" value="${today()}" required></label>
+      ${ents.map(e=>`<div class="sublab">${esc(e)}</div><div class="vlist">${by[e].sort((a,b)=>value(b)-value(a)).map(p=>{ const lv=lastVal(p); return `<label class="vrow">${avatar(p.entidad)}<span class="row-m"><b>${esc(p.nombre)}</b><small>${isInv(p)?'Valor':isPC(p)?'Por cobrar':'Saldo'} · antes ${lv?eur(lv.v,2)+' · '+sdate(lv.f):'sin dato'}</small></span><input type="number" inputmode="decimal" step="0.01" name="v_${esc(p.id)}" placeholder="€" aria-label="${esc(p.nombre)}"></label>` }).join('')}</div>`).join('')}
+      ${Object.values(S.re||{}).map(r=>`<div class="sublab">Inmuebles</div><div class="row tap" data-re="${esc(r.id)}"><span class="row-m"><b>${esc(r.nombre)}</b><small class="w">Se actualiza leyendo tu Excel del alquiler desde su ficha</small></span><span class="chev">${ICON.chev}</span></div>`).join('')}
+      <p class="hint">Rellena solo lo que haya cambiado. Cada cambio queda en la bitácora.</p><button class="btn wide">Guardar</button></form>`;
+  } else if (actMode==='movimiento'){
+    const inv=Object.values(S.prod).filter(p=>p.estado!=='cerrado'&&isInv(p)).sort((a,b)=>(a.entidad+a.nombre).localeCompare(b.entidad+b.nombre));
+    body=`<label class="fl">Inversión<select id="mvp">${inv.map(p=>`<option value="${esc(p.id)}">${esc(p.entidad)} — ${esc(p.nombre)}</option>`).join('')}</select></label>
+      <div class="actions pact">${[['aportar',ICON.down,'Aportado'],['retirar',ICON.up,'Retirado'],['traspaso',ICON.repeat,'Traspasado'],['cerrar','<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>','Cerrado'],['valor',ICON.refresh,'Valor actual']].map(([k,ic,l])=>`<button class="act" data-mvk="${k}"><span>${ic}</span>${l}</button>`).join('')}</div>
+      <p class="hint">Lo aportado sale siempre de una de tus cuentas y lo retirado vuelve a una: la app ajusta los dos saldos para no contar nada dos veces. Para un préstamo, ve a la pestaña Deuda.</p>`;
+  } else if (actMode==='nueva'){
+    const ents=[...new Set(Object.values(S.prod).map(p=>p.entidad))].sort();
+    body=`<div class="btns" style="margin-bottom:12px"><button class="btn ghost" data-newdebt>Nuevo préstamo</button></div>
+    <form id="fnew"><label class="fl">Tipo<select name="tipo">${TIPOS.map(t=>`<option>${t}</option>`).join('')}</select></label>
+    <label class="fl">Nombre<input name="nombre" required placeholder="Ej.: Vanguard Global Stock o Cuenta Wise"></label>
+    <label class="fl">Banco, bróker o persona<input name="entidad" list="ents" required><datalist id="ents">${ents.map(e=>`<option value="${esc(e)}">`).join('')}</datalist></label>
+    <label class="fl">ISIN o ticker (opcional)<input name="isin"></label>
+    <label class="fl">Fecha de apertura<input type="date" name="f" value="${today()}" required></label>
+    <label class="fl">Importe inicial o saldo (€)<input type="number" inputmode="decimal" step="0.01" name="imp" required></label>
+    <label class="fl">Precio de compra (opcional)<input type="number" inputmode="decimal" step="0.000001" name="precio"></label>
+    <label class="fl">Si es una inversión: ¿de qué cuenta sale el dinero?<select name="orig"><option value="">No sale de ninguna cuenta</option>${cashProds().map(o=>`<option value="${esc(o.id)}">${esc(o.entidad)} — ${esc(o.nombre)}</option>`).join('')}</select></label>
+    <label class="fl">Coste anual % o interés % (opcional)<input type="number" inputmode="decimal" step="0.01" name="coste"></label>
+    <label class="fl">Aportación periódica € (opcional)<input type="number" inputmode="decimal" step="0.01" name="pimp"></label>
+    <label class="fl">Frecuencia<select name="pfreq"><option value="mensual">Mensual</option><option value="semanal">Semanal</option><option value="diaria">Diaria</option></select></label>
+    <button class="btn wide">Crear</button></form>`;
+  } else if (actMode==='importar'){
+    body=`<label class="btn wide" style="cursor:pointer">Excel de actualización<input type="file" id="impu2" accept=".xlsx" hidden></label>
+      <p class="hint">Añade o completa productos, cuentas, valores, aportaciones o inmuebles sin borrar nada. Es el tipo de archivo que te preparo yo.</p><p class="hint" id="impu2msg"></p>
+      ${Object.values(S.re||{}).map(r=>`<label class="btn ghost wide" style="cursor:pointer;margin-top:8px">Excel del alquiler · ${esc(r.nombre)}<input type="file" accept=".xlsx,.xlsm" hidden data-reimp="${esc(r.id)}"></label>`).join('')}
+      <p class="hint">Para restaurar una copia completa de tus datos ve a Más › Avanzado.</p>`;
+  }
+  el.innerHTML=`<button class="backbtn" id="actback">${ICON.back}Volver</button><h2 class="h2">${title}</h2><div class="card">${body}</div>`;
+  $('#actback').onclick=()=>{actMode=null;renderAct()};
+  bindNew();
+  const fu=$('#fupd'); if(fu) fu.onsubmit=e=>{ e.preventDefault(); const f=new FormData(fu); const fe=f.get('f'); let n=0;
+    for (const [k,v] of f.entries()){ if(!k.startsWith('v_')||v==='') continue; const p=S.prod[k.slice(2)]; if(!p) continue; const old=lastVal(p)?.v;
+      p.vals=(p.vals||[]).filter(x=>x.f!==fe); p.vals.push({f:fe,v:+v,fia:'Dato',fu:isInv(p)?'Actualización manual':'Saldo actualizado'}); p.vals.sort((a,b)=>a.f<b.f?-1:1);
+      logChange(isInv(p)?'Valor actual':'Actualizar saldo',isInv(p)?'producto':'efectivo',p.id,p.nombre,`${old!=null?eur(old,2)+' → ':''}${eur(+v,2)}`,{f:fe,antes:old??'',despues:+v}); n++ }
+    if(n) schedule(); actMode=null; render(); toast(n?`${n} datos actualizados`:'No has cambiado nada') };
+  el.querySelectorAll('[data-mvk]').forEach(b=>b.onclick=()=>{ const id=$('#mvp').value; if(id) openAction(b.dataset.mvk,id) });
+  const nd=el.querySelector('[data-newdebt]'); if(nd) nd.onclick=()=>{ actMode=null; go('deuda'); setTimeout(()=>{ const d=$('#deuda details.edit'); if(d){ d.open=true; d.scrollIntoView() } },50) };
+  const iu=$('#impu2'); if(iu) iu.onchange=async ev=>{ const file=ev.target.files[0]; if(!file) return;
+    try{ const r=await importUpdate(file); render(); await push(); toast(`Importado: ${r.nuevos} nuevos · ${r.act} completados`) }catch(e){ toast('No se ha podido leer el archivo') } ev.target.value='' };
+};
+
+/* --- Más: sin importaciones repetidas; restaurar copia en "Avanzado"; datos automáticos --- */
+const _renderMas0=renderMas;
+renderMas=function(){ _renderMas0(); const el=$('#mas'); if(!el) return;
+  const cards=[...el.querySelectorAll('.card')];
+  const cImp=cards.find(c=>/Importar actualización/.test(c.querySelector('.card-h')?.textContent||'')); if(cImp) cImp.remove();
+  const cCls=cards.find(c=>/Importar clasificación/.test(c.querySelector('.card-h')?.textContent||'')); if(cCls) cCls.remove();
+  const cFull=cards.find(c=>/Importar un Excel/.test(c.querySelector('.card-h')?.textContent||''));
+  if (cFull){ const d=document.createElement('details'); d.className='card edit'; d.innerHTML='<summary>Avanzado: restaurar una copia completa</summary>'; const h=cFull.querySelector('.card-h'); if(h) h.remove(); while(cFull.firstChild) d.appendChild(cFull.firstChild); cFull.replaceWith(d) }
+  const h2=[...el.querySelectorAll('h2.h2')].find(h=>/Tus datos/.test(h.textContent));
+  if (h2) h2.insertAdjacentHTML('beforebegin',marketsCard());
+};
+function marketsCard(){
+  const fx=S.fx||{}; const row=(n,v,what,you,tip)=>`<div class="row"${xi('mk',{n,v,what,you,tip})}><span class="row-m"><b>${n}</b><small class="w">${you.replace(/<[^>]+>/g,'')}</small></span><span class="row-r num">${v}</span></div>`;
+  const f4=x=>x?String(Math.round(x*10000)/10000).replace('.',','):'—';
+  return `<h2 class="h2">Datos que la app consulta sola</h2><div class="card">
+    ${row('Inflación (IPC)',String(S.cfg.ipc).replace('.',',')+' %','La inflación anual de España. Se usa para calcular la rentabilidad real y lo que pierde tu efectivo.',`Instituto Nacional de Estadística${S.ipcLive?' · consultado hoy':' · último dato guardado'}`,'Cada vez que abres la app.')}
+    ${row('Euro → real brasileño',f4(fx.BRL?.r),'Cuántos reales compras con 1 €. Pasa a euros el valor y la hipoteca del piso.',`Banco Central Europeo${fx.BRL?' · '+fdate(fx.BRL.f):' · sin conexión'}`,'Cada vez que abres la app.')}
+    ${row('Euro → libra',f4(fx.GBP?.r),'Cuántas libras compras con 1 €. Tu monetario de Revolut está en libras: si la libra baja, vale menos en euros.',`Banco Central Europeo${fx.GBP?' · '+fdate(fx.GBP.f):' · sin conexión'}`,'Cada vez que abres la app.')}
+    ${row('Euro → dólar',f4(fx.USD?.r),'Cuántos dólares compras con 1 €. Buena parte de tus fondos invierte en EE. UU. sin cubrir el dólar: si el dólar baja, tus fondos valen menos en euros.',`Banco Central Europeo${fx.USD?' · '+fdate(fx.USD.f):' · sin conexión'}`,'Cada vez que abres la app.')}
+    <p class="hint">Solo se piden datos públicos: nunca se envía nada tuyo. El resto (valores de tus inversiones, S&amp;P 500 y MSCI World del año) se actualiza a mano.</p></div>`;
+}
+fetchFX=async function(){
+  S.fx=S.fx||{}; const cur=['BRL','GBP','USD']; let ok=false;
+  for (const u of [`https://api.frankfurter.dev/v1/latest?base=EUR&symbols=${cur.join(',')}`,`https://api.frankfurter.app/latest?from=EUR&to=${cur.join(',')}`]){
+    try{ const r=await fetch(u,{cache:'no-store'}); if(!r.ok) continue; const j=await r.json(); for (const c of cur){ const v=j?.rates?.[c]; if(v){ S.fx[c]={r:+v,f:j.date||today(),src:'Banco Central Europeo (vía Frankfurter)'}; ok=true } } if(ok) break }catch(e){} }
+  if(ok){ render(); const dlg=$('#dlg'); if(dlg.open&&dlg.dataset.re) openRE(dlg.dataset.re) }
+};
+
+/* --- Activos: gráfica temporal según el filtro --- */
+let ACHART=null;
+function actChartData(f){
+  const ps=Object.values(S.prod).filter(p=> f==='cerradas'?p.estado==='cerrado'&&isInv(p) : f==='activas'?p.estado!=='cerrado' : p.estado!=='cerrado'&&p.categoria===f);
+  const out=[]; const now=today(); let d=new Date(2023,11,31);
+  while(true){ const iso=d.toISOString().slice(0,10)>now?now:d.toISOString().slice(0,10); const row={f:iso,v:0,inv:0,real:0};
+    for (const p of ps){
+      if (f==='cerradas'){ if(p.cierre&&p.cierre<=iso){ const s=stats(p); row.real+=s.sal-s.ent } continue }
+      row.v+=valueAt(p,iso); if(isInv(p)) for (const m of p.movs||[]) if(m.f<=iso) row.inv+=invFlow(m) }
+    out.push(row); if(iso===now) break; d=new Date(d.getFullYear(),d.getMonth()+2,0) }
+  return out;
+}
+function drawActChart(){
+  if(!window.Chart) return; const cv=$('#achart'); if(!cv) return; if(ACHART) ACHART.destroy(); const f=posFilter; const rows=actChartData(f);
+  const mut=css('--muted'), line=css('--line'); const C=f==='Efectivo invertido'||f==='Efectivo'?css('--ei'):f==='cerradas'?css('--pos'):css('--inv');
+  const ds=f==='cerradas'?[{label:'Ganado al cerrar (acumulado)',data:rows.map(r=>r.real),borderColor:C,backgroundColor:C+'30',fill:'origin',stepped:'before',pointRadius:0,borderWidth:2}]
+    :[{label:f==='Efectivo invertido'||f==='Efectivo'?'Saldo':'Valor',data:rows.map(r=>r.v),borderColor:C,backgroundColor:C+'30',fill:'origin',tension:.3,pointRadius:0,borderWidth:2}]
+      .concat(f==='Efectivo invertido'||f==='Efectivo'?[]:[{label:'Invertido (acumulado)',data:rows.map(r=>r.inv),borderColor:css('--ink'),borderDash:[5,4],fill:false,pointRadius:0,borderWidth:1.5}]);
+  ACHART=new Chart(cv,{type:'line',data:{labels:rows.map(r=>r.f),datasets:ds},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+    scales:{x:{ticks:{color:mut,maxTicksLimit:5,maxRotation:0,callback(v){return D(this.getLabelForValue(v)).toLocaleDateString('es-ES',{month:'short',year:'2-digit'})}},grid:{display:false},border:{display:false}},
+      y:{position:'right',ticks:{color:mut,maxTicksLimit:5,callback:v=>new Intl.NumberFormat('es-ES',{notation:'compact'}).format(v)+' €'},grid:{color:line},border:{display:false}}},
+    plugins:{legend:{display:false},tooltip:{callbacks:{title:i=>fdate(i[0].label),label:c=>`${c.dataset.label}: ${eur(c.parsed.y)}`}}}}});
+}
+const ACTXT={activas:['Todo lo que tienes','La línea de color es lo que valían cada mes tus inversiones, cuentas y lo que te deben (sin inmuebles). La discontinua es lo que habías invertido de tu bolsillo en las inversiones.'],
+  'Inversión':['Tus inversiones','La línea de color es lo que valían tus inversiones abiertas cada mes; la discontinua, lo que habías puesto en ellas. La distancia entre las dos es lo que has ganado.'],
+  'Efectivo invertido':['Cuentas remuneradas','El saldo total de tus cuentas remuneradas cada mes.'],'Efectivo':['Efectivo libre','El saldo de tus cuentas corrientes cada mes.'],
+  cerradas:['Inversiones cerradas','Lo que has ganado (o perdido) en total con las inversiones que ya cerraste, sumando cada cierre en su fecha.']};
+const _renderActivos0=renderActivos;
+renderActivos=function(){ _renderActivos0(); const el=$('#activos'); const ch=el?.querySelector('.chips'); if(!ch) return; const tx=ACTXT[posFilter]||ACTXT.activas;
+  ch.insertAdjacentHTML('afterend',`<div class="card"><div class="card-h"${xi('act_chart',{t:tx[0],what:tx[1]})}>${tx[0]} <small>desde dic-2023</small> <span class="ib">${ICON.info}</span></div><div class="chartbox sm"><canvas id="achart" aria-label="Evolución"></canvas></div>
+    ${posFilter==='cerradas'?'':`<div class="legend"><span><i style="background:${posFilter==='Efectivo invertido'||posFilter==='Efectivo'?'var(--ei)':'var(--inv)'}"></i>${posFilter==='Efectivo invertido'||posFilter==='Efectivo'?'Saldo':'Valor'}</span>${posFilter==='Efectivo invertido'||posFilter==='Efectivo'?'':'<span><i class="dash"></i>Invertido</span>'}</div>`}</div>`);
+  el.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{ posFilter=b.dataset.f; renderActivos() });
+  if (TAB==='activos') setTimeout(drawActChart,0);
+};
+
+/* --- Deuda: la hipoteca del piso, a la vista (sin contarla dos veces) --- */
+const _renderDeuda0=renderDeuda;
+renderDeuda=function(){ _renderDeuda0(); const el=$('#deuda'); if(!el) return; const rs=Object.values(S.re||{}).filter(r=>+r.hip_saldo>0); if(!rs.length) return;
+  const t=totals(); const first=el.querySelector('.card');
+  first.insertAdjacentHTML('beforeend',`<p class="hint"${xi('deuda',{deuda:t.deuda,eurd:t.deudaEUR,hip:t.re.hip})}>Préstamos en euros. Con la hipoteca del piso, tu deuda total es ${eur(t.deuda)}.</p>`);
+  first.insertAdjacentHTML('afterend',rs.map(r=>{ const c=reCalc(r); const cur=r.divisa||'EUR'; const cuotaE=c.fx&&r.hip_cuota?+r.hip_cuota/c.fx:null;
+    return `<div class="card"><div class="loan-h"><span class="av" style="background:${RECOL};color:#0A0C11">${esc((r.nombre||'?').slice(0,2).toUpperCase())}</span><span class="row-m"><b>Hipoteca · ${esc(r.nombre)}</b><small>${esc(r.hip_entidad||'')}${r.hip_tin?` · TIN ${String(r.hip_tin).replace('.',',')} %`:''} · en ${cur}</small></span></div>
+      <div class="tiles three">
+        <div class="tile"${xi('re_hip',{c,cur,r})}><span>Pendiente</span><b class="num">${eur(c.hipE)}</b><small>${loc(c.hip,cur)}</small></div>
+        <div class="tile"><span>Cuota</span><b class="num">${cuotaE?eur(cuotaE):'—'}</b><small>${r.hip_cuota?loc(+r.hip_cuota,cur):''}</small></div>
+        <div class="tile"><span>Fin</span><b class="num">${r.hip_fin?sdate(r.hip_fin):'—'}</b></div></div>
+      <div class="row"><span class="row-m"><b>La paga el alquiler</b><small class="w">Ya está restada en tu parte del piso; aquí solo se muestra. Baja unos ${loc(+r.hip_amort||0,cur)} al mes${r.hip_fecha?' (último dato real: '+fdate(r.hip_fecha)+')':''}.</small></span></div>
+      <div class="btns"><button class="btn ghost" data-re="${esc(r.id)}">Ver o actualizar</button></div></div>` }).join(''));
+};
 
 /* ---------- arranque ---------- */
 document.getElementById('loginbtn').onclick=()=>login();
