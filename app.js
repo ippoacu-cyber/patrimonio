@@ -921,7 +921,7 @@ function renderInicio(){
     <div class="hero-l"${xi('neto',{neto:t.neto,activos:t.activos,deuda:t.deuda})}>Patrimonio neto</div>
     <div class="hero-n num"${xi('neto',{neto:t.neto,activos:t.activos,deuda:t.deuda})}>${ints}<span>,${dec} €</span></div>
     <div class="hero-pills">
-      <span class="pill"${xi('gan_total',{gan:t.gan,tv:t.tv,ext:t.ext,real:t.real})}>${signed(t.gan)} rentabilidad</span>
+      <span class="pill"${xi('gan_open',{tv:t.tv,ext:t.ext,real:t.real})}>${signed(t.tv-t.ext)} rentabilidad</span>
       <span class="pill"${xi('xirr_total',{x:t.x})}>${pct(t.x)} al año</span>
     </div>
     <div class="hero-bar">${CATS.map(c=>`<i style="width:${t.by[c]/tot*100}%;background:var(${CATCOL[c]})"${xi('cat',{cat:c,v:t.by[c],share:t.by[c]/tot})}></i>`).join('')}${t.re&&t.re.val>0?`<i style="width:${t.re.val/tot*100}%;background:${RECOL}"${xi('re_bar',{v:t.re.val,hip:t.re.hip,share:t.re.val/tot})}></i>`:''}${t.pc&&t.pc.inc>0?`<i style="width:${t.pc.inc/tot*100}%;background:${PCCOL}"${xi('pc',{inc:t.pc.inc,exc:t.pc.exc})}></i>`:''}</div>
@@ -930,9 +930,9 @@ function renderInicio(){
     <div class="big num"${xi('inv_val',{tv:t.tv,ext:t.ext,gan:t.gan})}>${eur(t.tv)}</div>
     <div class="tiles three">
       <div class="tile"${xi('ext_total',{ext:t.ext})}><span>Invertido</span><b class="num">${eur(t.ext)}</b></div>
-      <div class="tile"${xi('gan_total',{gan:t.gan,tv:t.tv,ext:t.ext})}><span>Rentabilidad</span><b class="num ${t.gan>=0?'pos':'neg'}">${signed(t.gan)}</b></div>
+      <div class="tile"${xi('gan_open',{tv:t.tv,ext:t.ext,real:t.real})}><span>Rentabilidad</span><b class="num ${t.tv-t.ext>=0?'pos':'neg'}">${signed(t.tv-t.ext)}</b></div>
       <div class="tile"${xi('xirr_total',{x:t.x})}><span>Al año</span><b class="num">${pct(t.x)}</b></div>
-    </div>${Math.abs(t.real||0)>1?`<p class="hint"${xi('real',{real:t.real,lat:t.tv-t.ext})}>De la rentabilidad, ${signed(t.real)} ya los ganaste al cerrar inversiones y ${signed(t.tv-t.ext)} los llevas en las abiertas.</p>`:''}</div>
+    </div>${Math.abs(t.real||0)>1?`<p class="hint"${xi('real',{real:t.real,lat:t.tv-t.ext})}>Aparte, con las inversiones que ya cerraste ganaste ${signed(t.real)} (no se suma aquí).</p>`:''}</div>
   <div class="card"><div class="tiles">
     <div class="tile"${xi('activos',{v:t.activos,inv:t.tv,cash:t.cash,re:t.re?.val||0,pc:t.pc?.inc||0})}><span>Activos sin deudas</span><b class="num">${eur(t.activos)}</b></div>
     <div class="tile"${xi('deuda',{deuda:t.deuda,eurd:t.deudaEUR,hip:t.re?.hip||0,n:nd.length,cuota})}><span>Deuda</span><b class="num neg">${eur(t.deuda)}</b></div>
@@ -1577,6 +1577,7 @@ function explain6(key,c){
   switch(key){
     case 'ext_total': return T('Invertido',eur(c.ext),'Lo que tienes puesto ahora mismo en las inversiones que siguen abiertas: lo que aportaste menos lo que sacaste. Las inversiones ya cerradas no cuentan aquí; lo que ganaste o perdiste con ellas se suma a la rentabilidad.',`<b>${eur(c.ext)}</b> en tus inversiones abiertas.`,'Puedes corregir lo aportado de cada producto en su ficha › Editar.');
     case 'gan_total': { const real=c.real!=null?c.real:(c.gan-(c.tv-c.ext)); return T('Rentabilidad de tus inversiones',eur(c.gan),'Lo que han ganado tus inversiones por encima de lo que pusiste. Incluye lo que ganaste con las que ya cerraste.',`Las abiertas valen ${eur(c.tv)} y tienes puestos ${eur(c.ext)}: ${signed(c.tv-c.ext)}.${Math.abs(real)>1?`<br>Ya ganado al cerrar inversiones: ${signed(real)}.`:''}<br><b>Total: ${signed(c.gan)}</b>`,'Antes de impuestos.') }
+    case 'gan_open': return T('Rentabilidad de tus inversiones',signed(c.tv-c.ext),'Lo que ganan hoy las inversiones que tienes abiertas: lo que valen menos lo que tienes puesto en ellas. Es lo mismo que la ganancia de "Si vendieras todo hoy".',`Valen ${eur(c.tv)} − tienes puestos ${eur(c.ext)} = <b>${signed(c.tv-c.ext)}</b>.`,`No incluye lo ganado con inversiones ya cerradas${c.real?` (${signed(c.real)})`:''}. La rentabilidad "al año" sí tiene en cuenta toda tu historia.`);
     case 'real': return T('Ganado en inversiones cerradas',signed(c.real),'Lo que ganaste (o perdiste) con las inversiones que ya cerraste o vendiste: lo que te devolvieron menos lo que pusiste.',`<b>${signed(c.real)}</b> ya realizados. En las abiertas llevas ${signed(c.lat)}.`,'Esta parte ya no se mueve con el mercado.');
   }
   return null;
