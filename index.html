@@ -269,12 +269,16 @@ input,select,textarea{background:var(--surface-2)!important;color:var(--ink)!imp
 .bar2 i{display:block;height:100%}
 .pd .fx{display:flex;justify-content:space-between;font-size:13px;color:var(--muted);margin:6px 0 14px}
 .tile small{display:block;color:var(--muted);font-size:12px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tophd{display:flex;align-items:center;gap:6px}
+#masbtn{color:var(--muted)}
+details.kw summary>span.num{font-weight:700}
+details.kw .hbar.yb,.hbar.yb{grid-template-columns:44px minmax(0,1fr) 96px}
 </style>
 </head>
 <body>
 <div id="gate" hidden><div class="gatebox"><h1>Mi patrimonio</h1><p>Entra con tu cuenta Microsoft. Lo aprobarás en Microsoft Authenticator.</p><button class="btn" id="loginbtn">Entrar con Microsoft</button><p id="gatemsg"></p><details><summary>Detalles técnicos (para enviar a Claude)</summary><pre id="gatelog"></pre><button class="btn" id="clearlog">Borrar detalles</button></details></div></div>
 <div class="app" hidden>
-  <header class="top"><div><h1 id="ttl">Inicio</h1><small id="asof">Cargando…</small></div><button class="sync" id="status" aria-label="Estado de sincronización"><b></b><span>Conectando…</span></button></header>
+  <header class="top"><div><h1 id="ttl">Inicio</h1><small id="asof">Cargando…</small></div><div class="tophd"><button class="iconbtn" id="masbtn" aria-label="Más: ajustes y datos"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button><button class="sync" id="status" aria-label="Estado de sincronización"><b></b><span>Conectando…</span></button></div></header>
   <main>
     <section id="inicio"></section>
     <section id="activos" hidden></section>
@@ -283,6 +287,7 @@ input,select,textarea{background:var(--surface-2)!important;color:var(--ink)!imp
     <section id="historico" hidden></section>
     <section id="deuda" hidden></section>
     <section id="mas" hidden></section>
+    <section id="salario" hidden></section>
   </main>
   <nav class="tabbar" aria-label="Secciones">
     <button class="tb" data-tab="inicio" aria-selected="true"><svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Inicio</button>
@@ -290,10 +295,10 @@ input,select,textarea{background:var(--surface-2)!important;color:var(--ink)!imp
     
     <button class="tb" data-tab="analisis"><svg viewBox="0 0 24 24"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>Análisis</button>
     <button class="tb add" data-tab="anadir" aria-label="Añadir"><span><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span></button>
-    <button class="tb" data-tab="deuda"><svg viewBox="0 0 24 24"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>Deuda</button>
+    <button class="tb" data-tab="salario"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h4"/></svg>Salario</button>
+        <button class="tb" data-tab="deuda"><svg viewBox="0 0 24 24"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>Deuda</button>
     <button class="tb" data-tab="historico"><svg viewBox="0 0 24 24"><path d="M4 19h16M6 15l4-5 4 3 5-7"/></svg>Histórico</button>
-    <button class="tb" data-tab="mas"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>Más</button>
-  </nav>
+</nav>
 </div>
 <dialog id="dlg" aria-label="Detalle del producto"></dialog>
 <dialog id="sheet" aria-label="Explicación"></dialog>

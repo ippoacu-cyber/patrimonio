@@ -107,7 +107,7 @@ async function pull(){
   catch(e){ dlog('Descarga del Excel falló ('+(dlu?'enlace directo':'Graph')+'): '+String(e.message||e).slice(0,100)); throw new Error('descarga_excel: '+(e.message||e)) }
   if(!r.ok){ dlog('Descarga del Excel: HTTP '+r.status); throw new Error('graph_'+r.status) }
   const st=stateFromWorkbook(await r.arrayBuffer());
-  S.prod=st.prod; S.debts=st.debts; S.cfg=st.cfg; S.log=st.log||[]; S.re=st.re||{}; S.reflows=st.reflows||[]; S.mode='db'; dirty=false; lastSync=new Date();
+  S.prod=st.prod; S.debts=st.debts; S.cfg=st.cfg; S.log=st.log||[]; S.re=st.re||{}; S.reflows=st.reflows||[]; S.nom=st.nom||[]; S.mode='db'; dirty=false; lastSync=new Date();
   setStatus('Sincronizado '+lastSync.toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'}), true); render();
 }
 async function push(force=false){
@@ -400,7 +400,7 @@ function renderMas(){
   $('#imp').onchange=async ev=>{ const file=ev.target.files[0]; if(!file) return; const msg=$('#impmsg');
     try{ const st=stateFromWorkbook(await file.arrayBuffer());
       if(!confirm(`Se sustituirán tus datos por ${Object.keys(st.prod).length} productos. ¿Continuar?`)) return;
-      S.prod=st.prod; S.debts=st.debts; S.cfg=st.cfg; S.re=st.re||{}; S.reflows=st.reflows||[]; S.log=(st.log&&st.log.length?st.log:S.log)||[]; logChange('Importar Excel completo','datos','',file.name,`${Object.keys(st.prod).length} productos`,{origen:'Importación'}); render(); await push(true); toast('Datos importados y guardados en OneDrive');
+      S.prod=st.prod; S.debts=st.debts; S.cfg=st.cfg; S.re=st.re||{}; S.reflows=st.reflows||[]; if((st.nom||[]).length) S.nom=st.nom; S.log=(st.log&&st.log.length?st.log:S.log)||[]; logChange('Importar Excel completo','datos','',file.name,`${Object.keys(st.prod).length} productos`,{origen:'Importación'}); render(); await push(true); toast('Datos importados y guardados en OneDrive');
     }catch(e){ msg.textContent='No se ha podido leer el archivo. Usa un Excel exportado desde la app.' } ev.target.value='' };
   $('#fcfg').onsubmit=e=>{e.preventDefault(); const f=new FormData(e.target); S.cfg.ipc=+f.get('ipc'); S.cfg.msci=f.get('msci')===''?null:+f.get('msci'); S.cfg.mscref=String(f.get('mscref')||'').trim(); S.cfg.perdidasAno=f.get('pano')===''?null:+f.get('pano'); S.cfg.perdidas=f.get('perd')===''?null:+f.get('perd'); S.cfg.sp500=f.get('sp')===''?null:+f.get('sp'); S.cfg.sp500ref=String(f.get('spref')||'').trim(); S.cfg.avisos=String(f.get('avisos')).split('\n').map(s=>s.trim()).filter(Boolean); logChange('Cambiar ajustes','ajustes','','',`Inflación ${S.cfg.ipc} % · ${S.cfg.avisos.length} avisos`); schedule(); render(); toast('Ajustes guardados')};
 }
@@ -1772,10 +1772,181 @@ renderDeuda=function(){ _renderDeuda0(); const el=$('#deuda'); if(!el) return; c
       <div class="btns"><button class="btn ghost" data-re="${esc(r.id)}">Ver o actualizar</button></div></div>` }).join(''));
 };
 
+
+/* ================== V9: SALARIO (nóminas mes a mes, totales y conceptos) ================== */
+// Privacidad: aquí NO hay ningún importe. Las nóminas viven solo en tu Excel de OneDrive (hojas "Nominas" y "NominaConceptos").
+// Este bloque solo contiene explicaciones genéricas de cada concepto.
+S.nom=S.nom||[];
+const MESES=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+const TAXD='Cotiza a la Seguridad Social y tributa en el IRPF.';
+const NG=[
+ {k:'base',l:'Salario base',d:1,t:c=>c==='0001',w:'La parte fija que marca la tabla salarial del convenio para tu categoría y nivel. Sobre ella se calculan las pagas extra, los atrasos y otros complementos. Las unidades son los días del mes.',x:TAXD},
+ {k:'prod',l:'Complemento de producción',d:1,t:c=>c==='0107',w:'Complemento fijo mensual ligado a tu puesto. Se cobra cada mes junto al salario base y también entra en las pagas extra.',x:TAXD},
+ {k:'vol',l:'Asignación personal voluntaria',d:1,t:c=>c==='0033',w:'Plus que la empresa te paga por encima del convenio (por ejemplo, tras una subida por mérito). Suele ser "absorbible y compensable": cuando el convenio sube la tabla salarial, la empresa puede bajar este plus en la misma cantidad y tu total no cambia.',x:TAXD},
+ {k:'extra',l:'Pagas extra',d:1,t:c=>c==='4000'||c==='4001',w:'Las dos pagas extraordinarias del año (julio y Navidad). Las unidades son los días que se han ido generando desde la paga anterior; el precio es lo que vale cada día.',x:TAXD},
+ {k:'bonus',l:'Bonus de productividad',d:1,t:c=>c==='2053'||c==='2102',w:'La parte variable de tu sueldo (en la nómina aparece como "Libre disposición"). Se paga una vez al año, normalmente en mayo, según los objetivos del año anterior.',x:TAXD+' Como se cobra de golpe, ese mes la retención de IRPF pesa más en euros.'},
+ {k:'disp',l:'Plus de disponibilidad',d:1,t:c=>c==='2019',w:'Pago por estar localizable o de guardia fuera de tu horario. Las unidades son los días o turnos de disponibilidad; el precio, lo que se paga por cada uno.',x:TAXD},
+ {k:'finde',l:'Plus de fin de semana y festivos',d:1,t:c=>c==='2020',w:'Pago por trabajar en sábado, domingo o festivo. Las unidades son los días trabajados.',x:TAXD},
+ {k:'estancia',l:'Plus de larga estancia',d:1,t:c=>c==='2021',w:'Pago único que se cobra al superar un número de días seguidos desplazado.',x:TAXD},
+ {k:'noct',l:'Plus de nocturnidad',d:1,t:c=>c==='2004',w:'Pago por horas trabajadas de noche. Las unidades son las horas; el precio, lo que vale cada hora nocturna.',x:TAXD},
+ {k:'plusvol',l:'Plus voluntario',d:1,t:c=>c==='2040',w:'Plus pagado por decisión de la empresa, fuera de la tabla del convenio.',x:TAXD},
+ {k:'conv',l:'Anticipos y pagos de convenio',d:1,t:c=>c==='2134'||c==='2244',w:'Cuando el convenio está sin firmar, la empresa puede adelantar una parte de la subida prevista ("a cuenta de convenio"). Al firmarse se calcula lo que te correspondía y se descuenta lo ya adelantado. "Pago único" es una cantidad fija pactada en el convenio.',x:TAXD},
+ {k:'km',l:'Kilometraje',d:1,t:c=>c==='2001'||c.startsWith('26'),w:'Lo que te pagan por usar tu coche en el trabajo. Las unidades son los kilómetros; el precio, lo que se paga por kilómetro.',x:'Hasta el límite legal por kilómetro no tributa; la línea "Klm. cotiza" es la parte que sí cuenta para la Seguridad Social.'},
+ {k:'dietas',l:'Dietas',d:1,t:c=>/^2/.test(c),w:'Dinero para comidas y alojamiento cuando trabajas desplazado. "CPern" o "SPern" significa con o sin pernocta (dormir fuera). "EX" son dietas en el extranjero. Las unidades son los días; el precio, lo que se paga por día.',x:'Hasta los límites legales (en España, 53,34 € al día con pernocta; en el extranjero, 91,35 €) no tributan ni cotizan. Lo que pasa de ese límite aparece aparte como "No exenta" o "Cotiza y tributa".'},
+ {k:'especie',l:'Seguros pagados por la empresa',d:1,t:c=>c==='7520'||c==='7521'||c==='7566',w:'El seguro de vida o de accidentes que paga la empresa por ti. No lo cobras en dinero: es "retribución en especie". Se suma como devengo solo para calcular impuestos y después se resta en "Ajuste conceptos NR".',x:'Tributa como sueldo en especie; por eso hay un pequeño "Ingreso a cuenta IRPF NR".'},
+ {k:'flex',l:'Retribución flexible',d:1,t:c=>c==='7554'||c==='7500',w:'Parte de tu sueldo que decides destinar a un servicio (formación, seguro médico) en lugar de cobrarla. Aparece en negativo porque sale de tu bruto antes de impuestos.',x:'Dentro de los límites legales no paga IRPF (el seguro médico, hasta 500 € al año por persona asegurada: tú, tu cónyuge e hijos). Sí cotiza a la Seguridad Social.'},
+ {k:'devol',l:'Devoluciones a la empresa',d:1,t:c=>c==='3020',w:'Dinero que te descuentan para devolver a la empresa un pago anterior (por ejemplo, impuestos que pagó por ti en otro país y que luego recuperaste en tu declaración).',x:'Conviene que tu asesor fiscal sepa que lo devolviste.'},
+ {k:'ajuste',l:'Regularizaciones de céntimos',d:1,t:c=>c==='9561',w:'Céntimos que quedaron pendientes de un mes a otro por redondeos.',x:''},
+ {k:'ss',l:'Seguridad Social',d:0,t:c=>/^\/(350|370|380|SC0)$/.test(c),w:'Tu parte de las cotizaciones a la Seguridad Social: contingencias comunes (pensión, bajas; incluye el recargo del Mecanismo de Equidad Intergeneracional), desempleo y formación profesional. Desde 2025 hay además una "cuota de solidaridad" sobre el sueldo que pasa de la base máxima. Se calcula como un porcentaje de tu base de cotización.',x:'Lo que pagas aquí se resta de tu sueldo al calcular el IRPF.'},
+ {k:'irpf',l:'Retención de IRPF',d:0,t:c=>c==='/401'||c==='/402',w:'Adelanto de tu impuesto sobre la renta. La empresa calcula un porcentaje con lo que prevé que cobrarás en el año y lo descuenta cada mes. En la declaración de la renta se compara con el impuesto real: si te retuvieron de más te devuelven, y si fue de menos pagas.',x:'No es un coste extra: es el impuesto pagado por adelantado.'},
+ {k:'irpfnr',l:'Ajustes de la retribución en especie',d:0,t:c=>c==='/403'||c==='9108',w:'"Ingreso a cuenta IRPF NR" es el IRPF del sueldo en especie (los seguros que paga la empresa). "Ajuste conceptos NR" resta lo que se sumó como especie, porque no lo cobras en dinero.',x:''},
+ {k:'devolr',l:'Devoluciones a la empresa',d:0,t:c=>c==='/GMB'||c==='9563',w:'Descuento para devolver a la empresa un pago anterior o regularizar una cantidad a su favor.',x:'Conviene que tu asesor fiscal sepa que lo devolviste.'},
+];
+const NGO={k:'otros',l:'Otros conceptos',d:1,t:()=>true,w:'Concepto poco habitual. Revisa la nómina original si necesitas el detalle.',x:''};
+function nomGroup(l){ const ded=l.tipo==='deduccion'; return NG.find(g=>(!!g.d)===!ded&&g.t(l.cod))||(ded?Object.assign({},NGO,{d:0}):NGO) }
+const nomDif=l=>/^DIF\./i.test(l.con);
+const nomCon=l=>l.con.replace(/^DIF\.\s*/i,'');
+function nomLabel(n,short){ const m=+n.desde.slice(5,7)-1, y=n.desde.slice(0,4); const part=n.desde.slice(8)!=='01'||(n.hasta&&+n.hasta.slice(8)<28);
+  const base=short?MESES[m].slice(0,3):MESES[m]; return (part?`${+n.desde.slice(8)}–${+(n.hasta||'').slice(8)} ${MESES[m].slice(0,3)}`:base[0].toUpperCase()+base.slice(1))+(short?'':' '+y) }
+const nomY=n=>n.desde.slice(0,4);
+const e2=n=>eur(n,2);
+const pc1=n=>n==null||!isFinite(n)?'—':String(Math.round(n*10)/10).replace('.',',')+' %';
+function nomSum(n,k){ return n.L.filter(l=>l.imp!=null&&l.tipo!=='informativo'&&nomGroup(l).k===k).reduce((s,l)=>s+l.imp,0) }
+function nomTot(list){ const o={n:list.length,dev:0,ded:0,liq:0,irpf:0,ss:0,sse:0,birpf:0,dietas:0};
+  list.forEach(n=>{ o.dev+=n.dev; o.ded+=n.ded; o.liq+=n.liq; o.irpf+=nomSum(n,'irpf'); o.ss+=nomSum(n,'ss'); o.sse+=n.sse||0; o.birpf+=n.birpf||0; o.dietas+=nomSum(n,'dietas')+nomSum(n,'km') }); return o }
+function nomAgg(list){ const g={}; list.forEach(n=>n.L.forEach(l=>{ if(l.imp==null||l.tipo==='informativo') return; const G=nomGroup(l); const key=(G.d?'d':'r')+G.k;
+  const o=g[key]||(g[key]={G,tot:0,byY:{},byC:{}}); o.tot+=l.imp; const y=nomY(n); o.byY[y]=(o.byY[y]||0)+l.imp;
+  const ck=nomCon(l)+'|'+l.cod; const c=o.byC[ck]||(o.byC[ck]={con:nomCon(l),cod:l.cod,G,tot:0,n:0,byY:{},dif:0}); c.tot+=l.imp; c.n++; c.byY[y]=(c.byY[y]||0)+l.imp; if(nomDif(l)) c.dif+=l.imp })); return g }
+function nomById(id){ return (S.nom||[]).find(n=>n.id===id) }
+function nomPrev(n){ const L=S.nom||[]; const i=L.indexOf(n); return i>0?L[i-1]:null }
+
+/* --- Excel: lectura, escritura e importación --- */
+function nomFromSheets(sh){
+  const R=sh('Nominas').filter(r=>r.desde||r.nomina); if(!R.length) return null;
+  const ds=v=> typeof v==='number' ? new Date(Math.round((v-25569)*864e5)).toISOString().slice(0,10) : String(v).slice(0,10);
+  const num=v=> v===''||v==null ? null : +String(v).replace(',','.');
+  const by={}; const list=R.map(r=>{ const id=ds(r.nomina||r.desde); return by[id]={id,per:String(r.periodo||'').slice(0,7)||id.slice(0,7),desde:ds(r.desde||r.nomina),hasta:r.hasta?ds(r.hasta):'',dias:num(r.dias),cat:String(r.categoria||''),rem:num(r.rem_total),pro:num(r.prorrata),birpf:num(r.base_irpf),bcc:num(r.base_cc),bcp:num(r.base_cp),dev:num(r.devengos)||0,ded:num(r.deducciones)||0,liq:num(r.liquido)||0,sse:num(r.ss_empresa),L:[]} });
+  sh('NominaConceptos').forEach(c=>{ const n=by[ds(c.nomina||'')]; if(!n) return; n.L.push({cod:String(c.codigo),con:String(c.concepto),uds:num(c.unidades),pre:num(c.precio),pct:num(c.tipo_pct),imp:num(c.importe),tipo:String(c.tipo||'devengo')}) });
+  return list.sort((a,b)=>a.id<b.id?-1:1) }
+const _sfw0=stateFromWorkbook;
+stateFromWorkbook=function(buf){ const st=_sfw0(buf); try{ const wb=XLSX.read(buf,{type:'array'}); st.nom=nomFromSheets(n=>wb.Sheets[n]?XLSX.utils.sheet_to_json(wb.Sheets[n],{defval:''}):[])||[] }catch(e){ st.nom=[] } return st };
+const _wfs0=workbookFromState;
+workbookFromState=function(){ const buf=_wfs0(); if(!(S.nom||[]).length) return buf; const wb=XLSX.read(buf,{type:'array'});
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(S.nom.map(n=>({nomina:n.id,periodo:n.per,desde:n.desde,hasta:n.hasta,dias:n.dias??'',categoria:n.cat,rem_total:n.rem??'',prorrata:n.pro??'',base_irpf:n.birpf??'',base_cc:n.bcc??'',base_cp:n.bcp??'',devengos:n.dev,deducciones:n.ded,liquido:n.liq,ss_empresa:n.sse??''}))),'Nominas');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(S.nom.flatMap(n=>n.L.map(l=>({nomina:n.id,periodo:n.per,codigo:l.cod,concepto:l.con,unidades:l.uds??'',precio:l.pre??'',tipo_pct:l.pct??'',importe:l.imp??'',tipo:l.tipo})))),'NominaConceptos');
+  return XLSX.write(wb,{type:'array',bookType:'xlsx'}) };
+const _iu0=importUpdate;
+importUpdate=async function(file){ const buf=await file.arrayBuffer(); const r=await _iu0({arrayBuffer:async()=>buf,name:file.name});
+  try{ const wb=XLSX.read(buf,{type:'array'}); const L=nomFromSheets(n=>wb.Sheets[n]?XLSX.utils.sheet_to_json(wb.Sheets[n],{defval:''}):[]);
+    if(L&&L.length){ const m={}; (S.nom||[]).forEach(n=>m[n.id]=n); let nw=0; L.forEach(n=>{ if(!m[n.id]) nw++; m[n.id]=n }); S.nom=Object.values(m).sort((a,b)=>a.id<b.id?-1:1);
+      r.nuevos=(r.nuevos||0)+nw; r.act=(r.act||0)+(L.length-nw); logChange('Importar nóminas','salario','','Nóminas',`${L.length} nóminas (${nw} nuevas)`,{origen:'Importación'}) } }catch(e){}
+  return r };
+
+/* --- pantalla --- */
+let SALY='todo';
+TITLES.salario='Salario';
+const _go0=go; go=function(t){ _go0(t); if(t==='salario') renderSalario() };
+const _render0=render; render=function(){ _render0(); renderSalario() };
+function nomRow(n){ const prev=nomPrev(n); const d=prev?n.liq-prev.liq:null;
+  return `<div class="row" data-nom="${esc(n.id)}" role="button" tabindex="0"><span class="row-m"><b>${esc(nomLabel(n))}</b><small>Bruto ${eur(n.dev)} · ${esc(n.cat)}</small></span><span class="row-r num">${eur(n.liq,2)}${d!=null?`<small class="${d>=0?'pos':'neg'}">${signed(d)}</small>`:''}</span></div>` }
+function nomGroupsHtml(list,years){ const g=nomAgg(list); const sec=(d)=>{ const xs=Object.values(g).filter(o=>!!o.G.d===d).sort((a,b)=>Math.abs(b.tot)-Math.abs(a.tot)); const tot=xs.reduce((s,o)=>s+o.tot,0)||1;
+    return xs.map(o=>{ const cs=Object.values(o.byC).sort((a,b)=>Math.abs(b.tot)-Math.abs(a.tot));
+      return `<details class="kw"><summary><span>${esc(o.G.l)}</span><span class="num">${eur(o.tot)} <small>${pc1(100*o.tot/tot)}</small></span></summary>
+        <div class="row"${xi('sal_grp',{k:o.G.k,d:o.G.d,tot:o.tot,share:100*o.tot/tot,byY:o.byY,years})}><span class="row-m"><b>Qué es y cómo ha evolucionado</b><small class="w">${esc(o.G.w.slice(0,90))}…</small></span><span class="row-r">${ICON.info||'ⓘ'}</span></div>
+        ${years.length>1?`<div class="sublab">Por año</div>${years.map(y=>o.byY[y]?`<div class="hbar yb"${xi('sal_grp_y',{k:o.G.k,d:o.G.d,y,v:o.byY[y],tot:o.tot})}><span class="hb-l">${y}</span><span class="hb-t"><i style="width:${Math.min(100,100*Math.abs(o.byY[y])/Math.max(...Object.values(o.byY).map(Math.abs)))}%;background:${d?'var(--accent)':'var(--neg)'}"></i></span><span class="hb-v num">${eur(o.byY[y])}</span></div>`:'').join('')}`:''}
+        <div class="sublab">Conceptos</div>${cs.map(c=>`<div class="row"${xi('sal_con',{con:c.con,cod:c.cod,k:o.G.k,d:o.G.d,tot:c.tot,n:c.n,byY:c.byY,dif:c.dif})}><span class="row-m"><b>${esc(c.con)}</b><small>${c.n} nómina${c.n===1?'':'s'}${c.dif?` · ${eur(c.dif)} en diferencias`:''}</small></span><span class="row-r num">${eur(c.tot,2)}</span></div>`).join('')}
+      </details>` }).join('') };
+  return `<div class="sublab">Lo que cobras (devengos)</div>${sec(true)}<div class="sublab">Lo que te descuentan (deducciones)</div>${sec(false)}` }
+function renderSalario(){
+  const el=$('#salario'); if(!el) return; const all=S.nom||[];
+  if(!all.length){ el.innerHTML=`<div class="card empty"><b>Todavía no hay nóminas.</b><p>Importa el Excel de nóminas desde el botón <b>+</b> › Importar. Se guardarán solo en tu Excel de OneDrive.</p></div>`; return }
+  const years=[...new Set(all.map(nomY))].sort(); if(SALY!=='todo'&&!years.includes(SALY)) SALY='todo';
+  const list=SALY==='todo'?all:all.filter(n=>nomY(n)===SALY); const t=nomTot(list); const scope=SALY==='todo'?`${nomLabel(all[0])} – ${nomLabel(all[all.length-1])}`:SALY;
+  const ctx={...t,scope};
+  el.innerHTML=`<div class="chips">${['todo',...years].map(y=>`<button class="chip" data-saly="${y}" aria-pressed="${SALY===y}">${y==='todo'?'Todo':y}</button>`).join('')}</div>
+  <div class="hero"><div class="hero-l">Neto cobrado · ${esc(scope)}</div><div class="hero-n num"${xi('sal_neto',ctx)}>${eur(t.liq)}</div>
+    <div class="hero-pills"><span class="pill num"${xi('sal_bruto',ctx)}>Bruto ${eur(t.dev)}</span><span class="pill num"${xi('sal_irpf',ctx)}>IRPF ${eur(t.irpf)}</span><span class="pill num"${xi('sal_ss',ctx)}>Seg. Social ${eur(t.ss)}</span></div>
+    <div class="hero-bar"><i style="flex:${t.liq};background:#7FE0B0"></i><i style="flex:${t.irpf};background:#FF9F7A"></i><i style="flex:${t.ss};background:#C9B6FF"></i><i style="flex:${Math.max(0,t.ded-t.irpf-t.ss)};background:rgba(255,255,255,.5)"></i></div></div>
+  <div class="tiles three" style="margin-bottom:14px">
+    <div class="tile"${xi('sal_media',ctx)}><span>Neto medio</span><b class="num">${eur(t.liq/t.n)}</b><small>${t.n} nóminas</small></div>
+    <div class="tile"${xi('sal_ret',ctx)}><span>Retención media</span><b class="num">${pc1(100*t.irpf/(t.birpf||1))}</b><small>sobre base IRPF</small></div>
+    <div class="tile"${xi('sal_coste',ctx)}><span>Coste empresa</span><b class="num">${eur(t.dev+t.sse)}</b><small>bruto + SS empresa</small></div></div>
+  ${SALY==='todo'?`<h2 class="h2">Año a año</h2><div class="card">${years.map(y=>{ const yt=nomTot(all.filter(n=>nomY(n)===y)); const py=nomTot(all.filter(n=>nomY(n)===String(+y-1)));
+    return `<div class="row"${xi('sal_year',{y,...yt,prev:py.n?py:null})}><span class="row-m"><b>${y}</b><small>${yt.n} nóminas · bruto ${eur(yt.dev)} · IRPF ${pc1(100*yt.irpf/(yt.birpf||1))}</small></span><span class="row-r num">${eur(yt.liq)}${py.n?`<small class="${yt.liq>=py.liq?'pos':'neg'}">${pc1(100*(yt.liq/py.liq-1))}</small>`:''}</span></div>` }).join('')}</div>`:''}
+  <h2 class="h2">Mes a mes</h2><div class="card">${(SALY==='todo'?years.slice().reverse():[SALY]).map((y,i)=>{ const ns=all.filter(n=>nomY(n)===y).slice().reverse();
+    return SALY==='todo'?`<details class="kw"${i===0?' open':''}><summary>${y} <small>${ns.length}</small></summary>${ns.map(nomRow).join('')}</details>`:ns.map(nomRow).join('') }).join('')}</div>
+  <h2 class="h2">En qué se reparte</h2><div class="card">${nomGroupsHtml(list,SALY==='todo'?years:[SALY])}</div>
+  <p class="hint">Cada cifra se puede pulsar. Los importes salen de tus nóminas y se guardan solo en tu Excel de OneDrive.</p>`;
+  el.querySelectorAll('[data-saly]').forEach(b=>b.onclick=()=>{ SALY=b.dataset.saly; renderSalario() });
+}
+document.addEventListener('click',e=>{ const r=e.target.closest('[data-nom]'); if(r&&!e.target.closest('[data-xi]')){ openNom(r.dataset.nom) } });
+document.addEventListener('keydown',e=>{ if((e.key==='Enter'||e.key===' ')&&e.target.matches('[data-nom]')){ e.preventDefault(); openNom(e.target.dataset.nom) } });
+
+function nomAnalysis(n){ const prev=nomPrev(n); const all=S.nom||[]; const i=all.indexOf(n); const last=all.slice(Math.max(0,i-12),i); const avg=last.length?last.reduce((s,x)=>s+x.liq,0)/last.length:null;
+  const out=[]; const ret=n.birpf?100*nomSum(n,'irpf')/n.birpf:null;
+  out.push(`De cada 100 € brutos te quedaron <b>${Math.round(100*n.liq/(n.dev||1))} €</b> netos.`);
+  if(avg!=null) out.push(`Cobraste <b class="${n.liq>=avg?'pos':'neg'}">${signed(n.liq-avg)}</b> respecto a la media de los ${last.length} meses anteriores (${eur(avg)}).`);
+  if(prev){ const gp=nomAgg([prev]), gn=nomAgg([n]); const keys=new Set([...Object.keys(gp),...Object.keys(gn)]); const ch=[...keys].map(k=>({l:(gn[k]||gp[k]).G.l,d:(gn[k]||gp[k]).G.d,v:(gn[k]?.tot||0)-(gp[k]?.tot||0)})).filter(x=>Math.abs(x.v)>=1).sort((a,b)=>Math.abs(b.v)-Math.abs(a.v)).slice(0,4);
+    out.push(`Frente a ${esc(nomLabel(prev))} (${eur(prev.liq)} netos), el neto cambió <b class="${n.liq>=prev.liq?'pos':'neg'}">${signed(n.liq-prev.liq)}</b>.${ch.length?' Lo que más lo explica: '+ch.map(x=>`${esc(x.l)} ${x.d?signed(x.v):(x.v>0?'+'+eur(x.v):'−'+eur(-x.v))+' de descuento'}`).join(' · ')+'.':''}`);
+    const pc=new Set(prev.L.map(l=>l.cod)); const nuevos=[...new Set(n.L.filter(l=>l.tipo!=='informativo'&&!pc.has(l.cod)).map(nomCon))]; if(nuevos.length) out.push(`Conceptos que no estaban el mes anterior: ${nuevos.map(esc).join(', ')}.`); }
+  if(n.L.some(nomDif)) out.push('Incluye líneas "DIF.": son diferencias de meses anteriores (atrasos o correcciones).');
+  if(ret!=null) out.push(`Retención de IRPF: <b>${pc1(ret)}</b> de la base sujeta a IRPF.`);
+  return out }
+function nomLineRow(n,l,i){ const G=nomGroup(l); const det=l.uds!=null&&l.pre!=null?`${String(l.uds).replace('.',',')} × ${String(l.pre).replace('.',',')}`:(l.pct!=null?`${String(l.pct).replace('.',',')} %`:'');
+  return `<div class="row"${xi('nom_line',{id:n.id,i})}><span class="row-m"><b>${esc(l.con)}</b><small>${esc(G.l)}${det?' · '+det:''}</small></span><span class="row-r num">${l.imp!=null&&l.tipo!=='informativo'?e2(l.imp):'—'}</span></div>` }
+function openNom(id){ const n=nomById(id); if(!n) return; const dlg=$('#dlg'); const L=n.L.map((l,i)=>({l,i}));
+  const dev=L.filter(x=>x.l.tipo==='devengo'), ded=L.filter(x=>x.l.tipo==='deduccion'), inf=L.filter(x=>x.l.tipo==='informativo');
+  dlg.innerHTML=`<div class="pd-top"><button class="iconbtn" data-close aria-label="Cerrar">${ICON.back}</button><span></span></div>
+  <div class="pd"><div class="pd-n">Nómina de ${esc(nomLabel(n))}</div><div class="pd-s">${esc(n.cat)} · ${n.dias??''} días · del ${fdate(n.desde)} al ${n.hasta?fdate(n.hasta):''}</div>
+    <div class="pd-v num"${xi('nom_liq',{id})}>${e2(n.liq)}</div><div class="pd-g">Neto ingresado en tu cuenta</div>
+    <div class="tiles three"><div class="tile"${xi('nom_dev',{id})}><span>Bruto</span><b class="num">${eur(n.dev)}</b></div><div class="tile"${xi('nom_ded',{id})}><span>Descuentos</span><b class="num">${eur(n.ded)}</b></div><div class="tile"${xi('nom_sse',{id})}><span>SS empresa</span><b class="num">${n.sse!=null?eur(n.sse):'—'}</b></div></div>
+    <div class="card"><div class="card-h">Análisis del mes</div>${nomAnalysis(n).map(s=>`<p>${s}</p>`).join('')}</div>
+    <div class="card"><div class="card-h">Lo que cobras</div>${dev.map(x=>nomLineRow(n,x.l,x.i)).join('')}</div>
+    <div class="card"><div class="card-h">Lo que te descuentan</div>${ded.map(x=>nomLineRow(n,x.l,x.i)).join('')}</div>
+    <div class="card"><div class="card-h">Bases de cálculo</div>
+      <div class="row"${xi('nom_base',{id,b:'irpf'})}><span class="row-m"><b>Base sujeta a IRPF</b><small>sobre ella se aplica la retención</small></span><span class="row-r num">${n.birpf!=null?e2(n.birpf):'—'}</span></div>
+      <div class="row"${xi('nom_base',{id,b:'cc'})}><span class="row-m"><b>Base de cotización</b><small>sobre ella se calcula la Seguridad Social</small></span><span class="row-r num">${n.bcc!=null?e2(n.bcc):'—'}</span></div>
+      <div class="row"${xi('nom_base',{id,b:'pro'})}><span class="row-m"><b>Prorrata de pagas extra</b><small>parte de las pagas extra que cotiza este mes</small></span><span class="row-r num">${n.pro!=null?e2(n.pro):'—'}</span></div>
+      ${inf.map(x=>nomLineRow(n,x.l,x.i)).join('')}</div>
+  </div>`;
+  openSheet(dlg) }
+
+function explain9(key,c){
+  const T=(t,v,what,you,tip)=>({t,v,what,you,tip}); const n=c.id?nomById(c.id):null; const G=k=>NG.find(g=>g.k===k)||NGO;
+  switch(key){
+    case 'sal_neto': return T('Neto cobrado',eur(c.liq),'El dinero que te llegó a la cuenta: el sueldo bruto menos IRPF, Seguridad Social y otros descuentos.',`En ${esc(c.scope)}: bruto ${eur(c.dev)} − descuentos ${eur(c.ded)} = <b>${eur(c.liq)}</b>, en ${c.n} nóminas.`,'Incluye dietas y kilometraje, que no son sueldo: compensan gastos de desplazamiento.');
+    case 'sal_bruto': return T('Bruto devengado',eur(c.dev),'Todo lo que generaste antes de descuentos: sueldo, pagas extra, bonus, pluses, dietas y kilometraje.',`De ese bruto, ${eur(c.dietas)} son dietas y kilometraje (en su mayoría sin impuestos). Sin ellos, el bruto de sueldo sería unos <b>${eur(c.dev-c.dietas)}</b>.`,'Para comparar con tu declaración de la renta usa la base de IRPF, no este total.');
+    case 'sal_irpf': return T('IRPF retenido',eur(c.irpf),'Impuesto sobre la renta adelantado cada mes por la empresa. Al hacer la declaración se ajusta.',`Te retuvieron <b>${eur(c.irpf)}</b>, un ${pc1(100*c.irpf/(c.birpf||1))} de tu base sujeta a IRPF (${eur(c.birpf)}).`,'Si la declaración sale a devolver, en realidad pagaste algo menos de esto.');
+    case 'sal_ss': return T('Seguridad Social (tu parte)',eur(c.ss),'Tus cotizaciones: pensión, bajas, desempleo y formación. Se calculan sobre la base de cotización.',`Pagaste <b>${eur(c.ss)}</b>. La empresa pagó además ${eur(c.sse)} por ti.`,'La base de cotización tiene un máximo legal: por encima no se cotiza (salvo la cuota de solidaridad desde 2025).');
+    case 'sal_media': return T('Neto medio por nómina',eur(c.liq/c.n),'El neto total dividido entre el número de nóminas.',`${eur(c.liq)} ÷ ${c.n} = <b>${eur(c.liq/c.n)}</b>.`,'Las pagas extra y el bonus suben la media: un mes normal es menor.');
+    case 'sal_ret': return T('Retención media de IRPF',pc1(100*c.irpf/(c.birpf||1)),'El porcentaje de tu base sujeta a IRPF que se fue en retenciones.',`${eur(c.irpf)} ÷ ${eur(c.birpf)} = <b>${pc1(100*c.irpf/(c.birpf||1))}</b>.`,'Sube con el sueldo porque el IRPF es progresivo: cada tramo de renta paga un porcentaje mayor.');
+    case 'sal_coste': return T('Lo que le cuestas a la empresa',eur(c.dev+c.sse),'Tu bruto más las cotizaciones que paga la empresa a la Seguridad Social por ti.',`Bruto ${eur(c.dev)} + Seguridad Social de la empresa ${eur(c.sse)} = <b>${eur(c.dev+c.sse)}</b>. Te llega neto un ${pc1(100*c.liq/(c.dev+c.sse||1))} de lo que pagan por ti.`,'No incluye otros costes de la empresa (seguros, formación pagada por ella, viajes).');
+    case 'sal_year': return T(`Año ${c.y}`,eur(c.liq),'Resumen de las nóminas de ese año.',`${c.n} nóminas.<br>Bruto: ${eur(c.dev)} (dietas y km: ${eur(c.dietas)})<br>Base IRPF: ${eur(c.birpf)}<br>IRPF: ${eur(c.irpf)} (${pc1(100*c.irpf/(c.birpf||1))})<br>Seguridad Social: ${eur(c.ss)}<br><b>Neto: ${eur(c.liq)}</b>${c.prev?`<br><br>Frente a ${+c.y-1}: neto ${signed(c.liq-c.prev.liq)} (${pc1(100*(c.liq/c.prev.liq-1))}); base IRPF ${signed(c.birpf-c.prev.birpf)}.`:''}`,c.n<12?'Año incompleto: no tiene las 12 nóminas.':'La base de IRPF es la cifra que debería cuadrar con los rendimientos del trabajo de tu declaración.');
+    case 'sal_grp': { const g=G(c.k); const ys=Object.entries(c.byY||{}).sort(); return T(g.l,eur(c.tot),g.w,`Total: <b>${eur(c.tot)}</b>, un ${pc1(c.share)} de lo que ${c.d?'cobraste':'te descontaron'}.${ys.length>1?'<br><br>'+ys.map(([y,v])=>`${y}: ${eur(v)}`).join('<br>'):''}`,g.x) }
+    case 'sal_grp_y': { const g=G(c.k); return T(`${g.l} · ${c.y}`,eur(c.v),g.w,`En ${c.y}: <b>${eur(c.v)}</b>, el ${pc1(100*c.v/(c.tot||1))} del total de este concepto.`,g.x) }
+    case 'sal_con': { const g=G(c.k); const ys=Object.entries(c.byY||{}).sort(); return T(c.con,eur(c.tot,2),g.w,`Código ${esc(c.cod)} · aparece en ${c.n} nómina${c.n===1?'':'s'}.<br>Total: <b>${eur(c.tot,2)}</b>${c.dif?`, de los que ${eur(c.dif,2)} son diferencias de meses anteriores (líneas "DIF.")`:''}.${ys.length>1?'<br><br>'+ys.map(([y,v])=>`${y}: ${eur(v,2)}`).join('<br>'):''}`,g.x) }
+    case 'nom_liq': return n&&T('Neto ingresado',e2(n.liq),'Lo que llegó a tu cuenta con esta nómina.',`Bruto ${e2(n.dev)} − descuentos ${e2(n.ded)} = <b>${e2(n.liq)}</b>.`,'Las dietas de un desplazamiento suelen pagarse en la nómina del mes siguiente.');
+    case 'nom_dev': { if(!n) return null; const g=nomAgg([n]); const xs=Object.values(g).filter(o=>o.G.d).sort((a,b)=>b.tot-a.tot); return T('Bruto de la nómina',e2(n.dev),'Suma de todo lo devengado este mes.',xs.map(o=>`${esc(o.G.l)}: ${e2(o.tot)}`).join('<br>')+`<br><b>Total: ${e2(n.dev)}</b>`,'Los seguros que paga la empresa se suman aquí aunque no los cobras en dinero; luego se restan en los descuentos.') }
+    case 'nom_ded': { if(!n) return null; const g=nomAgg([n]); const xs=Object.values(g).filter(o=>!o.G.d).sort((a,b)=>b.tot-a.tot); return T('Descuentos de la nómina',e2(n.ded),'Lo que se resta del bruto: IRPF, Seguridad Social y ajustes.',xs.map(o=>`${esc(o.G.l)}: ${e2(o.tot)}`).join('<br>')+`<br><b>Total: ${e2(n.ded)}</b> (${pc1(100*n.ded/(n.dev||1))} del bruto)`,'') }
+    case 'nom_sse': return n&&T('Seguridad Social de la empresa',n.sse!=null?e2(n.sse):'—','Lo que paga la empresa a la Seguridad Social por ti, además de tu sueldo. No sale de tu nómina.',n.sse!=null?`Este mes: <b>${e2(n.sse)}</b>. Tu coste total para la empresa: ${e2(n.dev+n.sse)}.`:'Esta nómina no trae el dato.','Incluye contingencias comunes, desempleo, accidentes de trabajo, FOGASA y formación.');
+    case 'nom_base': { if(!n) return null; const m={irpf:['Base sujeta a IRPF',n.birpf,'Parte del bruto que tributa: excluye dietas y kilometraje exentos y la retribución flexible exenta. Sobre ella se aplica el porcentaje de retención.',`Retención: ${e2(nomSum(n,'irpf'))} = ${pc1(100*nomSum(n,'irpf')/(n.birpf||1))} de ${e2(n.birpf)}.`],cc:['Base de cotización',n.bcc,'Sobre ella se calcula la Seguridad Social. Incluye el sueldo del mes más la parte proporcional de las pagas extra (prorrata), con un mínimo y un máximo legal.',`Seguridad Social del trabajador: ${e2(nomSum(n,'ss'))} = ${pc1(100*nomSum(n,'ss')/(n.bcc||1))} de ${e2(n.bcc)}.`],pro:['Prorrata de pagas extra',n.pro,'Las pagas extra cotizan repartidas cada mes aunque se cobren en julio y Navidad. Esta es la parte de este mes.',`Prorrata: ${e2(n.pro)}.`]}[c.b]; return T(m[0],m[1]!=null?e2(m[1]):'—',m[2],m[3],'') }
+    case 'nom_line': { if(!n) return null; const l=n.L[c.i]; if(!l) return null; const g=nomGroup(l); const prev=nomPrev(n); const pl=prev&&prev.L.find(x=>x.cod===l.cod&&nomDif(x)===nomDif(l));
+      const ytd=(S.nom||[]).filter(x=>nomY(x)===nomY(n)&&x.id<=n.id).reduce((s,x)=>s+x.L.filter(y=>y.cod===l.cod&&y.tipo===l.tipo&&y.imp!=null).reduce((a,y)=>a+y.imp,0),0);
+      const allT=(S.nom||[]).reduce((s,x)=>s+x.L.filter(y=>y.cod===l.cod&&y.tipo===l.tipo&&y.imp!=null).reduce((a,y)=>a+y.imp,0),0);
+      let calc=''; if(l.tipo==='informativo') calc=`Dato informativo: ${l.uds??''}. No suma ni resta en la nómina.`;
+      else if(l.uds!=null&&l.pre!=null) calc=`${String(l.uds).replace('.',',')} unidades × ${String(l.pre).replace('.',',')} € = <b>${e2(l.imp)}</b>`;
+      else if(l.pct!=null){ const base=g.k==='irpf'?n.birpf:n.bcc; calc=`${String(l.pct).replace('.',',')} %${base?` de ${e2(base)} (${g.k==='irpf'?'base sujeta a IRPF':'base de cotización'})`:''} = <b>${e2(l.imp)}</b>` }
+      else calc=`Importe: <b>${e2(l.imp)}</b>`;
+      return T(l.con,l.imp!=null&&l.tipo!=='informativo'?e2(l.imp):'—',g.w+(nomDif(l)?'<br><br><b>"DIF."</b> indica una diferencia: corrige o completa lo que se pagó en meses anteriores (por ejemplo, atrasos de convenio).':''),
+        `Código ${esc(l.cod)} · ${l.tipo==='deduccion'?'descuento':l.tipo==='devengo'?'devengo':'informativo'}.<br>${calc}${pl&&l.tipo!=='informativo'?`<br>Mes anterior: ${e2(pl.imp)} (${signed(l.imp-pl.imp,2)})`:''}${l.tipo!=='informativo'?`<br>Acumulado ${nomY(n)} hasta esta nómina: ${e2(ytd)}<br>Total en todas tus nóminas: ${e2(allT)}`:''}`,g.x) }
+  }
+  return null }
+const _explain0=explain; explain=function(k,c){ return explain9(k,c)||_explain0(k,c) };
+
 /* ---------- arranque ---------- */
 document.getElementById('loginbtn').onclick=()=>login();
 const _cl=document.getElementById('clearlog'); if(_cl) _cl.onclick=()=>{ try{localStorage.removeItem('pat_log');localStorage.removeItem('pat_loop')}catch(e){} document.getElementById('gatelog').textContent='' };
-$('#status').onclick=()=>go('mas');
+$('#status').onclick=()=>go('mas'); const _mb=document.getElementById('masbtn'); if(_mb) _mb.onclick=()=>go('mas');
 render(); load();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
 })();
