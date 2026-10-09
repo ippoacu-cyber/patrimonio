@@ -244,6 +244,7 @@ const CATTXT = {
   'Efectivo invertido':'Dinero en cuentas remuneradas y depósitos. No baja de valor y te paga un interés, pero normalmente gana menos de lo que suben los precios.',
   'Efectivo':'Efectivo libre: dinero en cuentas que no pagan nada, disponible para gastar o para invertir. Es útil para el día a día, pero cada año compra un poco menos por culpa de la inflación.'};
 function explain(key,c){
+  const _r7=explain7(key,c); if(_r7) return _r7;
   const _r6=explain6(key,c); if(_r6) return _r6;
   const _r5=explain5(key,c); if(_r5) return _r5;
   const _r4=explain4(key,c); if(_r4) return _r4;
@@ -835,7 +836,7 @@ async function importUpdate(file){
   const P=sh('Productos').length?sh('Productos'):(sh('Clasificación').length?sh('Clasificación'):sh('Clasificacion'));
   const M=sh('Movimientos'), V=sh('Valoraciones'), DV=sh('Dividir'), A=sh('Ajustes'), IR=sh('Inmuebles'), IF=sh('InmueblesFlujos');
   let nuevos=0, act=0, div=0; const created=new Set();
-  const FIELDS=['nombre','entidad','tipo','categoria','isin','estado','clase','gestion','liquidez','regiones','sectores','divisas','nota','claves','ext720'];
+  const FIELDS=['nombre','entidad','tipo','categoria','isin','estado','clase','gestion','liquidez','regiones','sectores','divisas','nota','claves','ext720','incluir'];
   for (const r of P){ const id=String(r.id||'').trim(); if(!id) continue; let p=S.prod[id];
     if (!p){ if(!r.nombre||!r.tipo) continue; p=S.prod[id]={id,nombre:r.nombre,entidad:r.entidad||'',tipo:r.tipo,categoria:r.categoria||catOf(r.tipo),isin:r.isin||'',estado:r.estado||'activo',apertura:r.apertura?ds(r.apertura):null,cierre:null,traspasable:String(r.traspasable||'').toLowerCase().startsWith('s'),costePct:num(r.coste_pct),nota:r.nota||'',periodica:null,movs:[],vals:[]}; created.add(id); nuevos++ } else act++;
     FIELDS.forEach(k=>{ if(r[k]!==''&&r[k]!=null) p[k]=String(r[k]) });
@@ -859,6 +860,9 @@ async function importUpdate(file){
     delete S.prod[from]; div++; logChange('Dividir producto','producto',from,par.nombre,`En ${kidVals.map(c=>c.nombre).join(', ')}`,{origen:'Importación'}) }
   if (A[0]){ const a=A[0]; if(a.perdidas_pendientes!==''&&a.perdidas_pendientes!=null) S.cfg.perdidas=num(a.perdidas_pendientes); if(a.sp500_ytd!==''&&a.sp500_ytd!=null) S.cfg.sp500=num(a.sp500_ytd); if(a.sp500_ref) S.cfg.sp500ref=String(a.sp500_ref); if(a.msci_ytd!==''&&a.msci_ytd!=null) S.cfg.msci=num(a.msci_ytd); if(a.msci_ref) S.cfg.mscref=String(a.msci_ref); if(a.perdidas_ano!==''&&a.perdidas_ano!=null) S.cfg.perdidasAno=num(a.perdidas_ano); if(a.avisos) S.cfg.avisos=String(a.avisos).split('|').map(s=>s.trim()).filter(Boolean) }
   logChange('Importar actualización','datos','',file.name,`${nuevos} nuevos · ${act} completados · ${div} divididos`,{origen:'Importación'});
+  const VH=sh('Valores'); for (const r of VH){ const p=S.prod[String(r.id||'')]; if(!p||r.valor===''||r.valor==null) continue; const f=r.fecha?ds(r.fecha):today(); const old=lastVal(p)?.v;
+    p.vals=(p.vals||[]).filter(x=>x.f!==f); p.vals.push({f,v:num(r.valor),fia:String(r.fiabilidad||'Dato tuyo'),fu:String(r.fuente||'Tus registros')}); p.vals.sort((a,b)=>a.f<b.f?-1:1); act++;
+    logChange(isInv(p)?'Valor actual':'Actualizar saldo',isInv(p)?'producto':'efectivo',p.id,p.nombre,`${old!=null?eur(old,2)+' → ':''}${eur(num(r.valor),2)}`,{f,antes:old??'',despues:num(r.valor),origen:'Importación'}) }
   const CR=sh('Corregir'), AP=sh('Aportado'); if (CR.length) act+=applyFixes(CR,ds,num);
   for (const r of AP){ const p=S.prod[String(r.id||'')]; if(!p||r.aportado===''||r.aportado==null) continue; const before=stats(p).neto; const d=reconcile(p,num(r.aportado),r.fecha?ds(r.fecha):today(),'Según tus registros'); if(d){ act++; logChange('Ajustar aportado','producto',p.id,p.nombre,`${eur(before,2)} → ${eur(num(r.aportado),2)}`,{antes:before,despues:num(r.aportado),origen:'Importación'}) } }
   S.re=S.re||{}; S.reflows=S.reflows||[]; let nre=0;
@@ -918,7 +922,7 @@ function renderInicio(){
       <span class="pill"${xi('gan_total',{gan:t.gan,tv:t.tv,ext:t.ext,real:t.real})}>${signed(t.gan)} rentabilidad</span>
       <span class="pill"${xi('xirr_total',{x:t.x})}>${pct(t.x)} al año</span>
     </div>
-    <div class="hero-bar">${CATS.map(c=>`<i style="width:${t.by[c]/tot*100}%;background:var(${CATCOL[c]})"${xi('cat',{cat:c,v:t.by[c],share:t.by[c]/tot})}></i>`).join('')}${t.re&&t.re.inc>0?`<i style="width:${t.re.inc/tot*100}%;background:${RECOL}"></i>`:''}</div>
+    <div class="hero-bar">${CATS.map(c=>`<i style="width:${t.by[c]/tot*100}%;background:var(${CATCOL[c]})"${xi('cat',{cat:c,v:t.by[c],share:t.by[c]/tot})}></i>`).join('')}${t.re&&t.re.inc>0?`<i style="width:${t.re.inc/tot*100}%;background:${RECOL}"></i>`:''}${t.pc&&t.pc.inc>0?`<i style="width:${t.pc.inc/tot*100}%;background:${PCCOL}"></i>`:''}</div>
   </div>
   <div class="actions">
     <button class="act" data-go="anadir" data-mode="valores"><span>${ICON.refresh}</span>Valores</button>
@@ -946,7 +950,7 @@ function renderInicio(){
     <details class="kw"><summary>Ver por producto <small>${L.rows.length}</small></summary>${L.rows.map(r=>`<div class="hbar"${xi('tax_prod',{n:r.p.nombre,v:r.v,base:r.base,g:r.g,alone:r.taxAlone,share:r.taxShare})}><span class="hb-l">${esc(r.p.nombre)}</span><span class="hb-v num ${r.g>=0?'pos':'neg'}">${signed(r.g)}</span><span class="hb-v num">${eur(r.taxShare)}</span></div>`).join('')}</details></div>
   <div class="card"><div class="card-h">Dónde está tu dinero</div>
     ${CATS.map(c=>`<div class="row"${xi('cat',{cat:c,v:t.by[c],share:t.by[c]/tot})}><span class="dot" style="background:var(${CATCOL[c]})"></span><span class="row-m"><b>${c==='Efectivo'?'Efectivo libre':c}</b><small>${c==='Efectivo invertido'?'cuentas remuneradas · ':c==='Efectivo'?'para gastar o invertir · ':''}${pctTxt(t.by[c]/tot)} del total</small></span><span class="row-r num">${eur(t.by[c])}</span></div>`).join('')}
-    ${reRows(t)}
+    ${reRows(t)}${pcRow(t)}
   </div>
   ${inicioCharts()}
   ${bankAccordion(t)}
@@ -1000,7 +1004,7 @@ function openProduct(id){
     <details class="card edit"><summary>Historial de cambios <small>${(S.log||[]).filter(l=>l.objeto_id===p.id).length}</small></summary>${logRows((S.log||[]).filter(l=>l.objeto_id===p.id).slice(-20))}</details>
     <details class="card edit"><summary>Editar este producto</summary>
       <form id="fedit">
-      ${cash?`<label class="fl">Interés anual / TAE (%)<input type="number" inputmode="decimal" step="0.01" name="tae" value="${p.tae??''}"></label>`:`<label class="fl">Coste anual (%)<input type="number" inputmode="decimal" step="0.01" name="coste" value="${p.costePct??''}"></label><label class="fl">Aportado neto según tus registros (€)<input type="number" inputmode="decimal" step="0.01" name="aport" placeholder="${String(Math.round(s.neto*100)/100).replace('.',',')}"></label>`}
+      ${cash?`${isPC(p)?`<label class="fl">Contar en el patrimonio<select name="incluir"><option value="sí" ${p.incluir!=='no'?'selected':''}>Sí</option><option value="no" ${p.incluir==='no'?'selected':''}>No (es condicionado)</option></select></label>`:''}<label class="fl">Interés anual / TAE (%)<input type="number" inputmode="decimal" step="0.01" name="tae" value="${p.tae??''}"></label>`:`<label class="fl">Coste anual (%)<input type="number" inputmode="decimal" step="0.01" name="coste" value="${p.costePct??''}"></label><label class="fl">Aportado neto según tus registros (€)<input type="number" inputmode="decimal" step="0.01" name="aport" placeholder="${String(Math.round(s.neto*100)/100).replace('.',',')}"></label>`}
       <label class="fl">Estado<select name="estado"><option value="activo" ${!closed?'selected':''}>Activo</option><option value="cerrado" ${closed?'selected':''}>Cerrado</option></select></label>
       ${cash?'':`<label class="fl">Aportación periódica (€)<input type="number" inputmode="decimal" step="0.01" name="pimp" value="${p.periodica?.importe??''}"></label>
       <label class="fl">Frecuencia<select name="pfreq">${['mensual','semanal','diaria'].map(x=>`<option ${p.periodica?.frecuencia===x?'selected':''}>${x}</option>`).join('')}</select></label>
@@ -1021,7 +1025,7 @@ function openProduct(id){
   if ((p.vals||[]).length>1) setTimeout(()=>lineChart('pchart',p.vals.map(v=>({f:v.f,v:v.v})),cash?css('--ei'):css('--inv'),cash),0);
   renderDocs(p);
   $('#fedit',dlg).onsubmit=async e=>{e.preventDefault(); const f=new FormData(e.target); const est=f.get('estado'); if(est==='cerrado'&&p.estado!=='cerrado'){p.cierre=today()} p.estado=est;
-    if (cash){ p.tae=f.get('tae')===''?null:+f.get('tae') } else {
+    if (cash){ p.tae=f.get('tae')===''?null:+f.get('tae'); if(isPC(p)) p.incluir=f.get('incluir')||'sí' } else {
       p.costePct=f.get('coste')===''?null:+f.get('coste'); if(f.get('aport')!==''&&f.get('aport')!=null){ const b0=stats(p).neto; if(reconcile(p,+f.get('aport'),today(),'Corrección manual')) logChange('Ajustar aportado','producto',p.id,p.nombre,`${eur(b0,2)} → ${eur(+f.get('aport'),2)}`,{antes:b0,despues:+f.get('aport')}) }
       p.periodica = f.get('pimp')? {importe:+f.get('pimp'),frecuencia:f.get('pfreq'),hasta:p.periodica?.hasta||today()} : null;
       p.riesgo=f.get('riesgo')?+f.get('riesgo'):null; ['clase','gestion','liquidez','regiones','sectores','divisas'].forEach(k=>p[k]=String(f.get(k)||'').trim()) }
@@ -1088,7 +1092,7 @@ function bindNew(){
 function workbookFromState(){
   const P=[],M=[],V=[],Dd=[];
   for (const p of Object.values(S.prod)){
-    P.push({id:p.id,nombre:p.nombre,entidad:p.entidad,tipo:p.tipo,categoria:p.categoria,isin:p.isin||'',estado:p.estado,apertura:p.apertura||'',cierre:p.cierre||'',traspasable:p.traspasable?'sí':'no',coste_pct:p.costePct??'',tae:p.tae??'',periodica_importe:p.periodica?.importe??'',periodica_frecuencia:p.periodica?.frecuencia??'',periodica_hasta:p.periodica?.hasta??'',nota:p.nota||'',riesgo:p.riesgo??'',clase:p.clase||'',gestion:p.gestion||'',liquidez:p.liquidez||'',regiones:p.regiones||'',sectores:p.sectores||'',divisas:p.divisas||'',claves:p.claves||'',claves_pdf:p.claves_pdf||'',ext720:p.ext720||''});
+    P.push({id:p.id,nombre:p.nombre,entidad:p.entidad,tipo:p.tipo,categoria:p.categoria,isin:p.isin||'',estado:p.estado,apertura:p.apertura||'',cierre:p.cierre||'',traspasable:p.traspasable?'sí':'no',coste_pct:p.costePct??'',tae:p.tae??'',periodica_importe:p.periodica?.importe??'',periodica_frecuencia:p.periodica?.frecuencia??'',periodica_hasta:p.periodica?.hasta??'',nota:p.nota||'',riesgo:p.riesgo??'',clase:p.clase||'',gestion:p.gestion||'',liquidez:p.liquidez||'',regiones:p.regiones||'',sectores:p.sectores||'',divisas:p.divisas||'',claves:p.claves||'',claves_pdf:p.claves_pdf||'',ext720:p.ext720||'',incluir:p.incluir||''});
     (p.movs||[]).forEach(m=>M.push({producto_id:p.id,producto:p.nombre,fecha:m.f,tipo:m.tipo,importe:m.imp,externo:m.ext,clasificacion:m.cls||'',fiabilidad:m.fia||'',fecha_aproximada:m.aprox?'sí':'',precio:m.precio??'',unidades:m.uds??'',movimiento:m.mov||'',nota:m.nota||''}));
     (p.vals||[]).forEach(v=>V.push({producto_id:p.id,producto:p.nombre,fecha:v.f,valor:v.v,fiabilidad:v.fia||'',fuente:v.fu||''}));
   }
@@ -1112,7 +1116,7 @@ function stateFromWorkbook(buf){
   const prod={};
   P.forEach(r=>{ prod[r.id]={id:String(r.id),nombre:r.nombre,entidad:r.entidad,tipo:r.tipo,categoria:r.categoria||catOf(r.tipo),isin:r.isin,estado:r.estado||'activo',apertura:r.apertura?ds(r.apertura):null,cierre:r.cierre?ds(r.cierre):null,traspasable:String(r.traspasable).toLowerCase().startsWith('s'),costePct:num(r.coste_pct),tae:num(r.tae),nota:r.nota,
     periodica: r.periodica_importe!==''&&r.periodica_importe!=null?{importe:num(r.periodica_importe),frecuencia:r.periodica_frecuencia||'mensual',hasta:r.periodica_hasta?ds(r.periodica_hasta):today()}:null,movs:[],vals:[],
-    riesgo:num(r.riesgo),clase:r.clase||'',gestion:r.gestion||'',liquidez:r.liquidez||'',regiones:String(r.regiones||''),sectores:String(r.sectores||''),divisas:String(r.divisas||''),claves:String(r.claves||''),claves_pdf:String(r.claves_pdf||''),ext720:String(r.ext720||'')} });
+    riesgo:num(r.riesgo),clase:r.clase||'',gestion:r.gestion||'',liquidez:r.liquidez||'',regiones:String(r.regiones||''),sectores:String(r.sectores||''),divisas:String(r.divisas||''),claves:String(r.claves||''),claves_pdf:String(r.claves_pdf||''),ext720:String(r.ext720||''),incluir:String(r.incluir||'')} });
   M.forEach(r=>{ const p=prod[r.producto_id]; if(!p) return; p.movs.push({f:ds(r.fecha),tipo:r.tipo,imp:num(r.importe)||0,ext:num(r.externo)||0,cls:r.clasificacion,fia:r.fiabilidad,aprox:String(r.fecha_aproximada).startsWith('s')||undefined,precio:num(r.precio),uds:num(r.unidades),mov:r.movimiento,nota:r.nota}) });
   V.forEach(r=>{ const p=prod[r.producto_id]; if(!p) return; p.vals.push({f:ds(r.fecha),v:num(r.valor)||0,fia:r.fiabilidad,fu:r.fuente}) });
   Object.values(prod).forEach(p=>{p.movs.sort((a,b)=>a.f<b.f?-1:1);p.vals.sort((a,b)=>a.f<b.f?-1:1)});
@@ -1575,6 +1579,34 @@ function explain6(key,c){
     case 'gan_total': { const real=c.real!=null?c.real:(c.gan-(c.tv-c.ext)); return T('Rentabilidad de tus inversiones',eur(c.gan),'Lo que han ganado tus inversiones por encima de lo que pusiste. Incluye lo que ganaste con las que ya cerraste.',`Las abiertas valen ${eur(c.tv)} y tienes puestos ${eur(c.ext)}: ${signed(c.tv-c.ext)}.${Math.abs(real)>1?`<br>Ya ganado al cerrar inversiones: ${signed(real)}.`:''}<br><b>Total: ${signed(c.gan)}</b>`,'Antes de impuestos.') }
     case 'real': return T('Ganado en inversiones cerradas',signed(c.real),'Lo que ganaste (o perdiste) con las inversiones que ya cerraste o vendiste: lo que te devolvieron menos lo que pusiste.',`<b>${signed(c.real)}</b> ya realizados. En las abiertas llevas ${signed(c.lat)}.`,'Esta parte ya no se mueve con el mercado.');
   }
+  return null;
+}
+
+
+/* ================== V7: "Por cobrar" (dinero que te deben y derechos condicionados) ================== */
+const PC='Por cobrar', PCCOL='#2BB3A0';
+const isPC=p=>p.categoria===PC;
+const _cashProds0=cashProds; cashProds=function(){ return _cashProds0().filter(p=>!isPC(p)) };
+const _activeProds0=activeProds; activeProds=function(){ return _activeProds0().filter(p=>!isPC(p)) };
+const _totals2=totals;
+totals=function(){ const t=_totals2(); let inc=0, exc=0;
+  for (const p of Object.values(S.prod)){ if(!isPC(p)||p.estado==='cerrado') continue; const v=value(p);
+    if (t.ent[p.entidad]!=null){ t.ent[p.entidad]-=v; if(t.ent[p.entidad]<0.5) delete t.ent[p.entidad] }
+    if (p.incluir==='no') exc+=v; else inc+=v }
+  t.pc={inc,exc}; t.activos+=inc; t.neto+=inc; return t };
+function pcProds(){ return Object.values(S.prod).filter(p=>isPC(p)&&p.estado!=='cerrado').sort((a,b)=>value(b)-value(a)) }
+function pcRow(t){ if(!pcProds().length) return ''; const tot=t.activos||1;
+  return `<div class="row tap" data-pc="1"><span class="dot" style="background:${PCCOL}"></span><span class="row-m"><b>Por cobrar</b><small>${t.pc.exc?`${eur(t.pc.exc)} condicionados fuera del total · `:''}${pctTxt(t.pc.inc/tot)} del total</small></span><span class="row-r num">${eur(t.pc.inc)}</span></div>` }
+function openPC(){ const sh=$('#sheet'); const ps=pcProds(); const t=totals();
+  sh.innerHTML=`<div class="grab"></div><div class="sh-b"><div class="sh-t">Por cobrar</div><div class="sh-v num"${xi('pc',{inc:t.pc.inc,exc:t.pc.exc})}>${eur(t.pc.inc)}</div>
+    <div class="list">${ps.map(p=>{ const lv=lastVal(p); return `<div class="row tap" data-pid="${esc(p.id)}"><span class="row-m"><b class="wrap">${esc(p.nombre)}</b><small class="w">${p.incluir==='no'?'No cuenta en el total':'Cuenta en el total'}${lv?' · '+sdate(lv.f):''}</small></span><span class="row-r num">${eur(value(p),2)}</span></div>` }).join('')}</div>
+    <p class="hint">Lo que te deben cuenta en tu patrimonio. Lo que depende de una condición futura (por ejemplo, mantener un plan hasta el vencimiento) se muestra aparte y no suma, salvo que lo actives en su ficha.</p>
+    <button type="button" class="btn ghost wide" data-close>Cerrar</button></div>`;
+  openSheet(sh); sh.querySelectorAll('[data-pid]').forEach(r=>r.onclick=()=>{ sh.close(); openProduct(r.dataset.pid) }) }
+document.addEventListener('click',e=>{ if(e.target.closest('[data-xi]')) return; if(e.target.closest('[data-pc]')) openPC() });
+function explain7(key,c){
+  const T=(t,v,what,you,tip)=>({t,v,what,you,tip});
+  if (key==='pc') return T('Por cobrar',eur(c.inc),'Dinero que es tuyo pero todavía no tienes: lo que te deben o devoluciones pendientes.',`Cuenta en el total: <b>${eur(c.inc)}</b>.${c.exc?`<br>Condicionado y fuera del total: ${eur(c.exc)}.`:''}`,'Si algo depende de una condición futura, mejor no contarlo hasta que sea seguro.');
   return null;
 }
 
