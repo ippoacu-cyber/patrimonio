@@ -363,14 +363,13 @@ function catOf(tipo){ return tipo==='Cuenta remunerada'||tipo==='Depósito' ? 'E
 /* ---------- ficha de producto ---------- */
 let pchart=null;
 /* ---------- Más: deudas, datos y ajustes ---------- */
-let LOGALL=false;
 function renderMas(){
   const el=$('#mas'); const ds=Object.values(S.debts);
   const tot=ds.reduce((s,d)=>s+loanAt(d).bal,0), cuota=ds.reduce((s,d)=>s+loanAt(d).cuota,0);
   const st=$('#status span')?.textContent||'';
   el.innerHTML=`<p class="hint" style="margin:0 6px 12px">Los préstamos tienen ahora su propia pestaña: Deuda.</p>
   <h2 class="h2">Bitácora de cambios</h2>
-  <div class="card">${logRows((S.log||[]).slice(LOGALL?0:-12))}${(S.log||[]).length>12?`<button class="btn ghost wide" id="logall" style="margin-top:10px">${LOGALL?'Ver menos':'Ver los '+S.log.length+' cambios'}</button>`:''}</div>
+  <div class="card">${logRows((S.log||[]).slice(-3))}${(S.log||[]).length>3?`<details class="kw"><summary>Ver todos los cambios <small>${S.log.length}</small></summary>${logRows(S.log.slice(0,-3))}</details>`:''}</div>
   <h2 class="h2">Tus datos</h2>
   <div class="card">
     <div class="row"${xi('sync',{s:st})}><span class="row-m"><b>OneDrive</b><small>${esc(st)}</small></span></div>
@@ -386,7 +385,6 @@ function renderMas(){
   $('#reload').onclick=()=>{ if(dirty&&!confirm('Hay cambios sin guardar. ¿Recargar igualmente?'))return; pull().catch(()=>toast('No se ha podido leer OneDrive')) };
   $('#exp').onclick=()=>{ const u=URL.createObjectURL(new Blob([workbookFromState()])); const a=document.createElement('a'); a.href=u; a.download=`patrimonio_${today()}.xlsx`; a.click(); setTimeout(()=>URL.revokeObjectURL(u),5000) };
   $('#out').onclick=logout;
-  const _la=$('#logall'); if(_la) _la.onclick=()=>{ LOGALL=!LOGALL; renderMas() };
   $('#impc').onchange=async ev=>{ const file=ev.target.files[0]; if(!file) return; const msg=$('#impcmsg');
     try{ const wb=XLSX.read(await file.arrayBuffer(),{type:'array'}); const ws=wb.Sheets['Clasificación']||wb.Sheets['Clasificacion']||wb.Sheets['Productos']; const R=XLSX.utils.sheet_to_json(ws,{defval:''});
       let n=0; for (const r of R){ const p=S.prod[String(r.id)]; if(!p) continue; n++;
