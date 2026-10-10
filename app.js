@@ -508,7 +508,7 @@ function drawDonuts(scope){
   scope.querySelectorAll('.dn-c canvas').forEach(cv=>{ const d=DOUGH[cv.id]; if(!d||cv.offsetParent===null) return;
     if (CHARTS[cv.id]) CHARTS[cv.id].destroy();
     CHARTS[cv.id]=new Chart(cv,{type:'doughnut',data:{labels:d.rows.map(r=>r.k),datasets:[{data:d.rows.map(r=>r.v),backgroundColor:d.rows.map((r,i)=>PAL[i%PAL.length]),borderColor:css('--surface'),borderWidth:2}]},
-      options:{cutout:'64%',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`${c.label}: ${eur(c.parsed)}`}}},
+      options:{cutout:'64%',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:tipLabel}}},
         onClick:(e,els)=>{ if(els[0]){ const m=d.reg[els[0].index].match(/data-xi="(\d+)"/); if(m) openExplain(m[1]) } }}}) });
 }
 let pieMode='entidad';
@@ -675,7 +675,7 @@ function lineChart(id,pts,color,step){ if(!window.Chart) return; const cv=docume
     options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
       scales:{x:{ticks:{color:mut,maxTicksLimit:4,maxRotation:0,callback(v){return D(this.getLabelForValue(v)).toLocaleDateString('es-ES',{day:'2-digit',month:'short',year:'2-digit'})}},grid:{display:false},border:{display:false}},
         y:{position:'right',ticks:{color:mut,maxTicksLimit:4,callback:v=>new Intl.NumberFormat('es-ES',{notation:'compact'}).format(v)+' €'},grid:{color:line},border:{display:false}}},
-      plugins:{legend:{display:false},tooltip:{callbacks:{title:i=>fdate(i[0].label),label:c=>eur(c.parsed.y,2)}}}}}) }
+      plugins:{legend:{display:false},tooltip:{callbacks:{title:i=>fdate(i[0].label),label:tipLabel}}}}}) }
 function openCash(){
   const dlg=$('#dlg'); const list=cashProds(); const tot=list.reduce((s,p)=>s+value(p),0);
   const ef=list.filter(p=>p.categoria==='Efectivo').reduce((s,p)=>s+value(p),0), ei=tot-ef; const ipc=S.cfg.ipc;
@@ -1199,7 +1199,7 @@ function renderHist(){
     options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
       scales:{x:{ticks:{color:mut,maxTicksLimit:5,maxRotation:0,callback(v){return D(this.getLabelForValue(v)).toLocaleDateString('es-ES',{month:'short',year:'2-digit'})}},grid:{display:false},border:{display:false}},
         y:{stacked:true,position:'right',ticks:{color:mut,maxTicksLimit:5,callback:v=>new Intl.NumberFormat('es-ES',{notation:'compact'}).format(v)+' €'},grid:{color:line},border:{display:false}}},
-      plugins:{legend:{display:false},tooltip:{callbacks:{title:i=>fdate(i[0].label),label:c=>`${c.dataset.label}: ${eur(c.parsed.y)}`}}}}});
+      plugins:{legend:{display:false},tooltip:{callbacks:{title:i=>fdate(i[0].label),label:tipLabel}}}}});
 }
 
 /* --- prueba de estrés: qué pasaría si la bolsa cae --- */
@@ -1743,7 +1743,7 @@ function drawActChart(){
   ACHART=new Chart(cv,{type:'line',data:{labels:rows.map(r=>r.f),datasets:ds},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
     scales:{x:{ticks:{color:mut,maxTicksLimit:5,maxRotation:0,callback(v){return D(this.getLabelForValue(v)).toLocaleDateString('es-ES',{month:'short',year:'2-digit'})}},grid:{display:false},border:{display:false}},
       y:{position:'right',ticks:{color:mut,maxTicksLimit:5,callback:v=>new Intl.NumberFormat('es-ES',{notation:'compact'}).format(v)+' €'},grid:{color:line},border:{display:false}}},
-    plugins:{legend:{display:false},tooltip:{callbacks:{title:i=>fdate(i[0].label),label:c=>`${c.dataset.label}: ${eur(c.parsed.y)}`}}}}});
+    plugins:{legend:{display:false},tooltip:{callbacks:{title:i=>fdate(i[0].label),label:tipLabel}}}}});
 }
 const ACTXT={activas:['Todo lo que tienes','La línea de color es lo que valían cada mes tus inversiones, cuentas y lo que te deben (sin inmuebles). La discontinua es lo que habías invertido de tu bolsillo en las inversiones.'],
   'Inversión':['Tus inversiones','La línea de color es lo que valían tus inversiones abiertas cada mes; la discontinua, lo que habías puesto en ellas. La distancia entre las dos es lo que has ganado.'],
@@ -1952,11 +1952,11 @@ const kfmt=v=>Math.abs(v)>=1000?String(Math.round(v/100)/10).replace('.',',')+'k
 let SALCHART=null;
 function nomParts(list){ const t=nomTot(list); const otros=Math.max(0,t.ded-t.irpf-t.ss); return {t,parts:[{k:'neto',l:'Neto',v:t.liq,c:NETC},{k:'irpf',l:'IRPF',v:t.irpf,c:NCOL.irpf},{k:'ss',l:'Seg. Social',v:t.ss,c:NCOL.ss},{k:'otros',l:'Otros descuentos',v:otros,c:'#6B7A90'}]} }
 function stackBar(parts,keyFn){ const tot=parts.reduce((s,p)=>s+Math.max(0,p.v),0)||1;
-  return `<div class="sbar">${parts.filter(p=>p.v>0).map(p=>`<i style="flex:${p.v};background:${p.c}"${keyFn?keyFn(p):''} title="${esc(p.l)}"></i>`).join('')}</div>
+  return `<div class="sbar">${parts.filter(p=>p.v>0).map(p=>`<i style="flex:${p.v};background:${p.c}"${keyFn?keyFn(p):''} title="${esc(p.l)}: ${eur(p.v,2)} · ${pc1(100*p.v/tot)}"></i>`).join('')}</div>
   <div class="slg">${parts.filter(p=>p.v>0).map(p=>`<span${keyFn?keyFn(p):''}><i style="background:${p.c}"></i>${esc(p.l)} <b class="num">${eur(p.v)}</b> <small>${Math.round(100*p.v/tot)} %</small></span>`).join('')}</div>` }
 function grpBars(list,d){ const g=nomAgg(list); const xs=Object.values(g).filter(o=>!!o.G.d===d&&o.tot>0).sort((a,b)=>b.tot-a.tot); const tot=xs.reduce((s,o)=>s+o.tot,0)||1; const mx=xs[0]?.tot||1;
-  return `<div class="sbar big">${xs.map(o=>`<i style="flex:${o.tot};background:${NCOL[o.G.k]||'#55606F'}" data-grp="${(d?'d':'r')+o.G.k}"></i>`).join('')}</div>
-  ${xs.map(o=>`<div class="gbar" data-grp="${(d?'d':'r')+o.G.k}" role="button" tabindex="0"><span class="gb-d" style="background:${NCOL[o.G.k]||'#55606F'}"></span><span class="gb-l">${esc(o.G.l)}</span><span class="gb-t"><i style="width:${100*o.tot/mx}%;background:${NCOL[o.G.k]||'#55606F'}"></i></span><span class="gb-v num">${eur(o.tot)}<small>${pc1(100*o.tot/tot)}</small></span></div>`).join('')}` }
+  return `<div class="sbar big">${xs.map(o=>`<i style="flex:${o.tot};background:${NCOL[o.G.k]||'#55606F'}" data-grp="${(d?'d':'r')+o.G.k}" title="${esc(o.G.l)}: ${eur(o.tot,2)} · ${pc1(100*o.tot/tot)}"></i>`).join('')}</div>
+  ${xs.map(o=>`<div class="gbar" data-grp="${(d?'d':'r')+o.G.k}" role="button" tabindex="0" title="${esc(o.G.l)}: ${eur(o.tot,2)} · ${pc1(100*o.tot/tot)}"><span class="gb-d" style="background:${NCOL[o.G.k]||'#55606F'}"></span><span class="gb-l">${esc(o.G.l)}</span><span class="gb-t"><i style="width:${100*o.tot/mx}%;background:${NCOL[o.G.k]||'#55606F'}"></i></span><span class="gb-v num">${eur(o.tot)}<small>${pc1(100*o.tot/tot)}</small></span></div>`).join('')}` }
 function calHtml(all,years){ const mx=Math.max(...all.map(n=>n.liq)), mn=Math.min(...all.filter(n=>n.dias>20).map(n=>n.liq));
   const cell=(y,m)=>{ const ns=all.filter(n=>nomY(n)===y&&+n.desde.slice(5,7)===m+1); if(!ns.length) return `<span class="cc empty"></span>`; const liq=ns.reduce((s,n)=>s+n.liq,0); const a=Math.max(.12,Math.min(1,(liq-mn*.8)/(mx-mn*.8)));
     const flag=ns.some(n=>n.L.some(l=>/^(2053|2102)$/.test(l.cod)))?'b':ns.some(n=>n.L.some(l=>/^(4000|4001)$/.test(l.cod)))?'e':'';
@@ -1982,7 +1982,7 @@ renderSalario=function(){
   <div class="card"><div class="card-h">${SALY==='todo'?'Año a año':'Mes a mes'} <small>toca una barra</small></div><div class="chartbox sm"><canvas id="salchart" aria-label="Neto, IRPF y Seguridad Social"></canvas></div>
     <div class="legend"><span><i style="background:${NETC}"></i>Neto</span><span><i style="background:${NCOL.irpf}"></i>IRPF</span><span><i style="background:${NCOL.ss}"></i>Seg. Social</span></div></div>
   <div class="card"><div class="card-h">Todas tus nóminas <small>toca un mes</small></div>${calHtml(all,SALY==='todo'?years:[SALY])}</div>
-  ${horaHtml(all)}${extrasHtml(all,SALY==='todo'?years:[SALY])}<div class="card"><div class="card-h">De dónde sale tu bruto</div>${grpBars(list,true)}</div>
+  ${horaHtml(all)}${extrasHtml(all,SALY==='todo'?years:[SALY])}${netHtml(list)}<div class="card"><div class="card-h">De dónde sale tu bruto</div>${grpBars(list,true)}</div>
   <div class="card"><div class="card-h">A dónde van los descuentos</div>${grpBars(list,false)}</div>
   <p class="hint">Todo se puede tocar para ver el detalle. Los importes se guardan solo en tu Excel de OneDrive.</p>`;
   el.querySelectorAll('[data-saly]').forEach(b=>b.onclick=()=>{ SALY=b.dataset.saly; renderSalario() });
@@ -1994,9 +1994,9 @@ function drawSalChart(){ if(!window.Chart) return; const cv=$('#salchart'); if(!
   if(SALY==='todo'){ const ys=[...new Set(all.map(nomY))].sort(); rows=ys.map(y=>{ const t=nomTot(all.filter(n=>nomY(n)===y)); return {l:y,key:y,t} }) }
   else rows=all.filter(n=>nomY(n)===SALY).map(n=>({l:nomLabel(n,true),key:n.id,t:nomTot([n])}));
   SALCHART=new Chart(cv,{type:'bar',data:{labels:rows.map(r=>r.l),datasets:[{label:'Neto',data:rows.map(r=>r.t.liq),backgroundColor:NETC,borderRadius:4,stack:'s'},{label:'IRPF',data:rows.map(r=>r.t.irpf),backgroundColor:NCOL.irpf,stack:'s'},{label:'Seg. Social',data:rows.map(r=>r.t.ss),backgroundColor:NCOL.ss,borderRadius:4,stack:'s'}]},
-    options:{responsive:true,maintainAspectRatio:false,onClick:(e,els)=>{ if(!els.length) return; const r=rows[els[0].index]; if(SALY==='todo'){ SALY=r.key; renderSalario() } else openNom(r.key) },
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},onClick:(e,els)=>{ if(!els.length) return; const r=rows[els[0].index]; if(SALY==='todo'){ SALY=r.key; renderSalario() } else openNom(r.key) },
       scales:{x:{stacked:true,ticks:{color:mut,maxRotation:0,autoSkip:true},grid:{display:false},border:{display:false}},y:{stacked:true,position:'right',ticks:{color:mut,maxTicksLimit:4,callback:v=>kfmt(v)+' €'},grid:{color:line},border:{display:false}}},
-      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${eur(c.parsed.y)}`,footer:i=>'Bruto aprox.: '+eur(rows[i[0].dataIndex].t.dev)}}}}}) }
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:tipLabel,footer:i=>'Bruto aprox.: '+eur(rows[i[0].dataIndex].t.dev,2)}}}}}) }
 const _go1=go; go=function(t){ _go1(t); if(t==='salario') setTimeout(drawSalChart,0) };
 
 function openGrp(key){ const all=S.nom||[]; const list=SALY==='todo'?all:all.filter(n=>nomY(n)===SALY); const g=nomAgg(list)[key]; if(!g) return; const G=g.G; const col=NCOL[G.k]||'#55606F';
@@ -2076,17 +2076,22 @@ function horaData(all){ const J=+S.cfg.jornada||0; if(!J||!all.length) return nu
     const bs=t.dev-de-dt, nsu=t.liq-de-dt*(1-ret-ssr);
     return {y,n:ns.length,dias,hc,we,h,bt:t.dev,nt:t.liq,bs,ns:nsu,de,dt,ret,ssr,partial:dias<full-1} }) }
 let D_={};
-function horaHtml(all){ const R=horaData(all); if(!R) return `<div class="card"><div class="card-h">Euros por hora</div><p class="hint">Añade tu jornada anual (horas de convenio) en la hoja Ajustes del Excel, columna <b>jornada_anual</b>, e impórtalo para ver este análisis.</p></div>`;
+function horaHtml(all){ const R=horaData(all); if(!R) return `<div class="card"><div class="card-h">Lo que ganas por hora</div><p class="hint">Añade tu jornada anual (horas de convenio) en la hoja Ajustes del Excel, columna <b>jornada_anual</b>, e impórtalo para ver este análisis.</p></div>`;
   const T=R.reduce((a,r)=>({h:a.h+r.h,bt:a.bt+r.bt,nt:a.nt+r.nt,bs:a.bs+r.bs,ns:a.ns+r.ns}),{h:0,bt:0,nt:0,bs:0,ns:0}); const c=R[R.length-1]; const f=v=>v.toFixed(2).replace('.',',');
-  const tile=(l,k,sub)=>`<div class="tile"${xi('hora',{r:c,k,avg:T[k]/T.h})}><span>${l}</span><b class="num">${f(c[k]/c.h)} €/h</b><small class="${c[k]/c.h>=T[k]/T.h?'pos':'neg'}">media ${f(T[k]/T.h)}</small></div>`;
-  return `<div class="card"><div class="card-h">Euros por hora · ${c.y}${c.partial?' <small>hasta '+esc(nomLabel(all[all.length-1]))+'</small>':''}</div>
-    <div class="tiles">${tile('Neto ingresado','nt')}${tile('Sueldo neto','ns')}${tile('Sueldo bruto','bs')}${tile('Total bruto','bt')}</div>
-    <p class="hint"${xi('hora_h',{r:c})}>${Math.round(c.h)} horas: ${Math.round(c.hc)} de calendario + ${String(c.we).replace('.',',')} días de fin de semana × ${WEH} h. Toca para ver cómo se calcula.</p>
+  const ph=r=>({ns:r.ns/r.h, di:(r.nt-r.ns)/r.h, tx:(r.bt-r.nt)/r.h, nt:r.nt/r.h, bs:r.bs/r.h, bt:r.bt/r.h});
+  const p=ph(c), a=ph(T); const seg=[{k:'ns',l:'Sueldo neto',v:p.ns,c:NETC,d:'tu sueldo después de impuestos, sin dietas'},{k:'di',l:'Dietas y km',v:p.di,c:NCOL.dietas,d:'compensan gastos de viaje; casi no pagan impuestos'},{k:'tx',l:'IRPF y Seg. Social',v:p.tx,c:NCOL.irpf,d:'lo que se queda Hacienda y la Seguridad Social'}];
+  const xk=k=>({ns:'ns',di:'nt',tx:'bt'})[k];
+  return `<div class="card"><div class="card-h">Lo que ganas por hora · ${c.y}${c.partial?' <small>hasta '+esc(nomLabel(all[all.length-1]))+'</small>':''}</div>
+    <div class="hh"${xi('hora',{r:c,k:'nt',avg:a.nt})}><b class="num">${f(p.nt)} €</b><span>te llegan a la cuenta por cada hora trabajada</span><small class="${p.nt>=a.nt?'pos':'neg'}">${p.nt>=a.nt?'▲':'▼'} media 2019–${c.y}: ${f(a.nt)} €</small></div>
+    <div class="sbar big">${seg.map(x=>`<i style="flex:${x.v};background:${x.c}" title="${x.l}: ${f(x.v)} €/h · ${pc1(100*x.v/p.bt)}"></i>`).join('')}</div>
+    <div class="hleg">${seg.map(x=>`<div class="hl"${xi('hora',{r:c,k:xk(x.k),avg:a[x.k]})}><i style="background:${x.c}"></i><span><b>${esc(x.l)}</b><small>${x.d}</small></span><b class="num">${f(x.v)} €/h</b></div>`).join('')}
+      <div class="hl tot"${xi('hora',{r:c,k:'bt',avg:a.bt})}><i></i><span><b>Coste bruto por hora</b><small>suma de las tres partes; sin dietas serían ${f(p.bs)} €/h</small></span><b class="num">${f(p.bt)} €/h</b></div></div>
+    <p class="hint"${xi('hora_h',{r:c})}>${Math.round(c.h)} horas trabajadas: ${Math.round(c.hc)} de calendario + ${String(c.we).replace('.',',')} días de fin de semana × ${WEH} h.</p>
     <details class="kw"><summary>Análisis completo por año <small>${R.length}</small></summary>
-      <div class="xtw"><table class="xt"><thead><tr><th>Año</th><th>Horas</th><th>Neto ingr./h</th><th>Sueldo neto/h</th><th>Sueldo bruto/h</th><th>Total bruto/h</th></tr></thead><tbody>
-      ${R.map(r=>`<tr><th>${r.y}${r.partial?'*':''}</th><td class="num"${xi('hora_h',{r})}>${Math.round(r.h)}<small>${String(r.we).replace('.',',')} d finde</small></td>${['nt','ns','bs','bt'].map(k=>`<td class="num"${xi('hora',{r,k,avg:T[k]/T.h})}>${f(r[k]/r.h)}</td>`).join('')}</tr>`).join('')}
-      <tr class="sum"><th>Media</th><td class="num">${Math.round(T.h)}</td>${['nt','ns','bs','bt'].map(k=>`<td class="num">${f(T[k]/T.h)}</td>`).join('')}</tr></tbody></table></div>
-      <p class="hint">* Año incompleto (horas prorrateadas). Media ponderada: euros totales ÷ horas totales. "Sueldo" excluye dietas y kilometraje; "Neto ingresado" es lo que llegó a tu cuenta. Las horas de fin de semana pueden estar ya compensadas con la bolsa de horas: en ese caso el € por hora real sería mayor.</p>
+      <div class="xtw"><table class="xt"><thead><tr><th>Año</th><th>Horas</th><th><i class="dot" style="background:${NETC}"></i>Neto a la cuenta/h</th><th><i class="dot" style="background:${NETC}"></i>Sueldo neto/h</th><th><i class="dot" style="background:${NCOL.dietas}"></i>Dietas/h</th><th><i class="dot" style="background:${NCOL.irpf}"></i>Impuestos/h</th><th>Bruto total/h</th></tr></thead><tbody>
+      ${R.map(r=>{ const q=ph(r); return `<tr><th>${r.y}${r.partial?'*':''}</th><td class="num"${xi('hora_h',{r})}>${Math.round(r.h)}<small>${String(r.we).replace('.',',')} d finde</small></td>${[['nt','nt'],['ns','ns'],['di','nt'],['tx','bt'],['bt','bt']].map(([k,xk2])=>`<td class="num"${xi('hora',{r,k:xk2,avg:a[k]})}>${f(q[k])}</td>`).join('')}</tr>` }).join('')}
+      <tr class="sum"><th>Media</th><td class="num">${Math.round(T.h)}</td>${['nt','ns','di','tx','bt'].map(k=>`<td class="num">${f(a[k])}</td>`).join('')}</tr></tbody></table></div>
+      <p class="hint">Importes en € por hora. * Año incompleto (horas prorrateadas). Media ponderada: euros totales ÷ horas totales. Las horas de fin de semana pueden estar ya compensadas con la bolsa de horas: en ese caso el € por hora real sería mayor.</p>
     </details></div>` }
 const _explain2=explain; explain=function(k,c){
   const f=v=>v.toFixed(2).replace('.',','), L={nt:['Neto ingresado por hora','Todo lo que llegó a tu cuenta (sueldo y dietas) dividido entre las horas trabajadas.'],ns:['Sueldo neto por hora','Tu sueldo neto sin dietas ni kilometraje (que compensan gastos) dividido entre las horas trabajadas. A las dietas que tributan se les quita su parte proporcional de IRPF y Seguridad Social.'],bs:['Sueldo bruto por hora','Tu sueldo bruto sin dietas ni kilometraje dividido entre las horas trabajadas.'],bt:['Total bruto por hora','Todo lo devengado en tus nóminas, dietas incluidas, dividido entre las horas trabajadas.']};
@@ -2096,6 +2101,38 @@ const _explain2=explain; explain=function(k,c){
 const _sfw1=stateFromWorkbook; stateFromWorkbook=function(buf){ const st=_sfw1(buf); try{ const wb=XLSX.read(buf,{type:'array'}); const a=(wb.Sheets.Ajustes?XLSX.utils.sheet_to_json(wb.Sheets.Ajustes,{defval:''}):[])[0]; if(a&&a.jornada_anual!==''&&a.jornada_anual!=null) st.cfg.jornada=+String(a.jornada_anual).replace(',','.') }catch(e){} return st };
 const _wfs1=workbookFromState; workbookFromState=function(){ const buf=_wfs1(); if(!S.cfg.jornada) return buf; const wb=XLSX.read(buf,{type:'array'}); const A=wb.Sheets.Ajustes?XLSX.utils.sheet_to_json(wb.Sheets.Ajustes,{defval:''}):[{}]; A[0].jornada_anual=S.cfg.jornada; wb.Sheets.Ajustes=XLSX.utils.json_to_sheet(A); return XLSX.write(wb,{type:'array',bookType:'xlsx'}) };
 const _iu1=importUpdate; importUpdate=async function(file){ const buf=await file.arrayBuffer(); const r=await _iu1({arrayBuffer:async()=>buf,name:file.name}); try{ const wb=XLSX.read(buf,{type:'array'}); const a=(wb.Sheets.Ajustes?XLSX.utils.sheet_to_json(wb.Sheets.Ajustes,{defval:''}):[])[0]; if(a&&a.jornada_anual!==''&&a.jornada_anual!=null){ S.cfg.jornada=+String(a.jornada_anual).replace(',','.'); logChange('Jornada anual','ajustes','','Salario',S.cfg.jornada+' h',{origen:'Importación'}) } }catch(e){} return r };
+
+
+/* ================== V13: de dónde sale cada neto + tooltips con valor y % ================== */
+function tipLabel(c){ const ch=c.chart, t=ch.config.type; const v=(t==='doughnut'||t==='pie')?c.parsed:c.parsed.y; const name=(t==='doughnut'||t==='pie')?c.label:(c.dataset.label||''); let p='';
+  if(t==='doughnut'||t==='pie'){ const sm=c.dataset.data.reduce((a,b)=>a+(+b||0),0); if(sm) p=pc1(100*v/sm) }
+  else if(t==='bar'){ const sm=ch.data.datasets.filter((d,i)=>ch.isDatasetVisible(i)&&(d.stack||'')===(c.dataset.stack||'')).reduce((a,d)=>a+(+d.data[c.dataIndex]||0),0); if(sm) p=pc1(100*v/sm) }
+  else { const pr=c.dataIndex>0?+c.dataset.data[c.dataIndex-1]:null; if(pr) p=(v>=pr?'+':'')+pc1(100*(v/pr-1))+' vs anterior' }
+  return `${name?name+': ':''}${eur(v,2)}${p?' · '+p:''}` }
+function nomNetParts(n){ const ex=[],tx=[]; n.L.forEach(l=>{ if(l.tipo!=='devengo'||l.imp==null) return; const G=nomGroup(l); ((G.k==='dietas'||G.k==='km')&&!/no exenta|cotz|cotiza/i.test(l.con)?ex:tx).push([G,l.imp]) });
+  const base=tx.reduce((s,x)=>s+x[1],0); const rate=base?n.ded/base:0; const o={};
+  tx.forEach(([G,v])=>{ (o[G.k]||(o[G.k]={G,v:0})).v+=v*(1-rate) }); ex.forEach(([G,v])=>{ (o[G.k]||(o[G.k]={G,v:0})).v+=v }); return o }
+function netAgg(list){ const o={}; list.forEach(n=>{ const p=nomNetParts(n); for(const k in p){ (o[k]||(o[k]={G:p[k].G,v:0})).v+=p[k].v } }); return o }
+function netHtml(list){ const all_=Object.values(netAgg(list)).filter(o=>Math.abs(o.v)>0.5).sort((a,b)=>b.v-a.v); const g=all_.filter(o=>o.v>0), neg=all_.filter(o=>o.v<0); const tot=all_.reduce((s,o)=>s+o.v,0)||1; const mx=g[0]?.v||1;
+  return `<div class="card"><div class="card-h">De dónde sale tu neto <small>toca una barra</small></div>
+    <div class="chartbox sm"><canvas id="netchart" aria-label="Neto por concepto"></canvas></div>
+    <div class="sublab">Total ${SALY==='todo'?'de todas tus nóminas':SALY}: ${eur(tot,2)}</div>
+    <div class="sbar big">${g.map(o=>`<i style="flex:${o.v};background:${NCOL[o.G.k]||'#55606F'}" title="${esc(o.G.l)}: ${eur(o.v,2)} · ${pc1(100*o.v/tot)}"></i>`).join('')}</div>
+    ${g.map(o=>`<div class="gbar"${xi('net_grp',{k:o.G.k,l:o.G.l,v:o.v,share:100*o.v/tot})} title="${esc(o.G.l)}: ${eur(o.v,2)} · ${pc1(100*o.v/tot)}"><span class="gb-d" style="background:${NCOL[o.G.k]||'#55606F'}"></span><span class="gb-l">${esc(o.G.l)}</span><span class="gb-t"><i style="width:${100*o.v/mx}%;background:${NCOL[o.G.k]||'#55606F'}"></i></span><span class="gb-v num">${eur(o.v)}<small>${pc1(100*o.v/tot)}</small></span></div>`).join('')}
+    ${neg.length?`<div class="sublab">Restan de tu neto</div>${neg.map(o=>`<div class="gbar"${xi('net_grp',{k:o.G.k,l:o.G.l,v:o.v,share:100*o.v/tot})} title="${esc(o.G.l)}: ${eur(o.v,2)}"><span class="gb-d" style="background:${NCOL[o.G.k]||'#55606F'}"></span><span class="gb-l">${esc(o.G.l)}</span><span class="gb-t"></span><span class="gb-v num neg">${eur(o.v)}</span></div>`).join('')}`:''}
+    <p class="hint">Estimado: los descuentos (IRPF, Seguridad Social) de cada nómina se reparten en proporción entre los conceptos que tributan; las dietas y el kilometraje exentos llegan íntegros.</p></div>` }
+let NETCHART=null;
+function drawNetChart(){ if(!window.Chart) return; const cv=$('#netchart'); if(!cv) return; if(NETCHART) NETCHART.destroy(); const all=S.nom||[]; const mut=css('--muted'), line=css('--line');
+  const rows=SALY==='todo'?[...new Set(all.map(nomY))].sort().map(y=>({l:y,key:y,o:netAgg(all.filter(n=>nomY(n)===y))})):all.filter(n=>nomY(n)===SALY).map(n=>({l:nomLabel(n,true),key:n.id,o:nomNetParts(n)}));
+  const tot={}; rows.forEach(r=>{ for(const k in r.o){ tot[k]=(tot[k]||0)+r.o[k].v } }); const keys=Object.keys(tot).filter(k=>tot[k]>0.5).sort((a,b)=>tot[b]-tot[a]); const top=keys.slice(0,7), rest=keys.slice(7);
+  const lab=k=>{ for(const r of rows) if(r.o[k]) return r.o[k].G.l; return k };
+  const ds=top.map(k=>({label:lab(k),data:rows.map(r=>Math.max(0,r.o[k]?.v||0)),backgroundColor:NCOL[k]||'#55606F',stack:'n'}));
+  if(rest.length) ds.push({label:'Otros',data:rows.map(r=>rest.reduce((s,k)=>s+Math.max(0,r.o[k]?.v||0),0)),backgroundColor:'#55606F',stack:'n'});
+  NETCHART=new Chart(cv,{type:'bar',data:{labels:rows.map(r=>r.l),datasets:ds},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},onClick:(e,els)=>{ if(!els.length) return; const r=rows[els[0].index]; if(SALY==='todo'){ SALY=r.key; renderSalario() } else openNom(r.key) },
+    scales:{x:{stacked:true,ticks:{color:mut,maxRotation:0,autoSkip:true},grid:{display:false},border:{display:false}},y:{stacked:true,position:'right',ticks:{color:mut,maxTicksLimit:4,callback:v=>kfmt(v)+' €'},grid:{color:line},border:{display:false}}},
+    plugins:{legend:{display:false},tooltip:{filter:c=>Math.abs(c.parsed.y)>0.005,callbacks:{label:tipLabel,footer:i=>{ const r=rows[i[0].dataIndex]; return 'Neto: '+eur(Object.values(r.o).reduce((s,x)=>s+x.v,0),2) }}}}}}) }
+const _dsc=drawSalChart; drawSalChart=function(){ _dsc(); drawNetChart() };
+const _explain3=explain; explain=function(k,c){ if(k==='net_grp'){ const g=NG.find(x=>x.k===c.k)||NGO; return {t:`${c.l} en tu neto`,v:eur(c.v,2),what:g.w,you:`Aporta <b>${eur(c.v,2)}</b> netos, el ${pc1(c.share)} de lo que te llegó a la cuenta${SALY==='todo'?'':' en '+SALY}.`,tip:'Estimado: el IRPF y la Seguridad Social de cada nómina se reparten en proporción entre los conceptos que tributan.'} } return _explain3(k,c) };
 
 /* ---------- arranque ---------- */
 document.getElementById('loginbtn').onclick=()=>login();
