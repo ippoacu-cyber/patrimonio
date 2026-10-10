@@ -1982,7 +1982,7 @@ renderSalario=function(){
   <div class="card"><div class="card-h">${SALY==='todo'?'Año a año':'Mes a mes'} <small>toca una barra</small></div><div class="chartbox sm"><canvas id="salchart" aria-label="Neto, IRPF y Seguridad Social"></canvas></div>
     <div class="legend"><span><i style="background:${NETC}"></i>Neto</span><span><i style="background:${NCOL.irpf}"></i>IRPF</span><span><i style="background:${NCOL.ss}"></i>Seg. Social</span></div></div>
   <div class="card"><div class="card-h">Todas tus nóminas <small>toca un mes</small></div>${calHtml(all,SALY==='todo'?years:[SALY])}</div>
-  ${extrasHtml(all,SALY==='todo'?years:[SALY])}<div class="card"><div class="card-h">De dónde sale tu bruto</div>${grpBars(list,true)}</div>
+  ${horaHtml(all)}${extrasHtml(all,SALY==='todo'?years:[SALY])}<div class="card"><div class="card-h">De dónde sale tu bruto</div>${grpBars(list,true)}</div>
   <div class="card"><div class="card-h">A dónde van los descuentos</div>${grpBars(list,false)}</div>
   <p class="hint">Todo se puede tocar para ver el detalle. Los importes se guardan solo en tu Excel de OneDrive.</p>`;
   el.querySelectorAll('[data-saly]').forEach(b=>b.onclick=()=>{ SALY=b.dataset.saly; renderSalario() });
@@ -2062,6 +2062,40 @@ const _explain1=explain; explain=function(k,c){
   if(k==='xtr_wey'){ const f=x=>String(Math.round(x*10)/10).replace('.',','); const prs=Object.entries(c.pr||{}).sort((a,b)=>+a[0]-+b[0]).map(([p,u])=>`${f(u)} días a ${eur(+p,2)}`).join('<br>');
     return {t:`Findes y festivos · ${c.y}`,v:`${f(c.d)} días`,what:'Días de fin de semana o festivo trabajados según las unidades de los pluses.',you:`${prs?prs+'<br>':''}${c.dbl?`${f(c.dbl)} días a precio doble<br>`:''}${c.dif?`Incluye ${eur(c.dif,2)} de líneas "DIF." (días pagados con retraso o regularizados)<br>`:''}Cobrado por ellos: <b>${eur(c.v)}</b>${c.d?` (${eur(c.v/c.d,2)} de media por día)`:''}<br>≈ ${f(c.d/2)} fines de semana`,tip:''} }
   return _explain1(k,c) };
+
+
+/* ================== V12: SALARIO · euros por hora trabajada ================== */
+// La jornada anual sale de tu Excel (hoja Ajustes, columna jornada_anual). Los días de fin de semana cuentan 8 h.
+const WEH=8;
+function horaData(all){ const J=+S.cfg.jornada||0; if(!J||!all.length) return null; const ys=[...new Set(all.map(nomY))].sort(); D_=extrasData(all);
+  return ys.map(y=>{ const ns=all.filter(n=>nomY(n)===y); const t=nomTot(ns); const d0=ns.map(n=>n.desde).sort()[0], d1=ns.map(n=>n.hasta||n.desde).sort().pop();
+    const full=(new Date(+y,11,31)-new Date(+y,0,1))/864e5+1; const dias=Math.min(full,(new Date(d1)-new Date(d0))/864e5+1); const hc=J*dias/full;
+    const we=Math.round(((D_.disp?.[y]?.u||0)+(D_.finde?.[y]?.u||0))*10)/10; const h=hc+we*WEH;
+    let de=0,dt=0; ns.forEach(n=>n.L.forEach(l=>{ if(l.tipo!=='devengo'||l.imp==null) return; const k=nomGroup(l).k; if(k!=='dietas'&&k!=='km') return; if(/no exenta|cotz|cotiza/i.test(l.con)) dt+=l.imp; else de+=l.imp }));
+    const ret=t.birpf?t.irpf/t.birpf:0, bcc=ns.reduce((s,n)=>s+(n.bcc||0),0), ssr=bcc?t.ss/bcc:0;
+    const bs=t.dev-de-dt, nsu=t.liq-de-dt*(1-ret-ssr);
+    return {y,n:ns.length,dias,hc,we,h,bt:t.dev,nt:t.liq,bs,ns:nsu,de,dt,ret,ssr,partial:dias<full-1} }) }
+let D_={};
+function horaHtml(all){ const R=horaData(all); if(!R) return `<div class="card"><div class="card-h">Euros por hora</div><p class="hint">Añade tu jornada anual (horas de convenio) en la hoja Ajustes del Excel, columna <b>jornada_anual</b>, e impórtalo para ver este análisis.</p></div>`;
+  const T=R.reduce((a,r)=>({h:a.h+r.h,bt:a.bt+r.bt,nt:a.nt+r.nt,bs:a.bs+r.bs,ns:a.ns+r.ns}),{h:0,bt:0,nt:0,bs:0,ns:0}); const c=R[R.length-1]; const f=v=>v.toFixed(2).replace('.',',');
+  const tile=(l,k,sub)=>`<div class="tile"${xi('hora',{r:c,k,avg:T[k]/T.h})}><span>${l}</span><b class="num">${f(c[k]/c.h)} €/h</b><small class="${c[k]/c.h>=T[k]/T.h?'pos':'neg'}">media ${f(T[k]/T.h)}</small></div>`;
+  return `<div class="card"><div class="card-h">Euros por hora · ${c.y}${c.partial?' <small>hasta '+esc(nomLabel(all[all.length-1]))+'</small>':''}</div>
+    <div class="tiles">${tile('Neto ingresado','nt')}${tile('Sueldo neto','ns')}${tile('Sueldo bruto','bs')}${tile('Total bruto','bt')}</div>
+    <p class="hint"${xi('hora_h',{r:c})}>${Math.round(c.h)} horas: ${Math.round(c.hc)} de calendario + ${String(c.we).replace('.',',')} días de fin de semana × ${WEH} h. Toca para ver cómo se calcula.</p>
+    <details class="kw"><summary>Análisis completo por año <small>${R.length}</small></summary>
+      <div class="xtw"><table class="xt"><thead><tr><th>Año</th><th>Horas</th><th>Neto ingr./h</th><th>Sueldo neto/h</th><th>Sueldo bruto/h</th><th>Total bruto/h</th></tr></thead><tbody>
+      ${R.map(r=>`<tr><th>${r.y}${r.partial?'*':''}</th><td class="num"${xi('hora_h',{r})}>${Math.round(r.h)}<small>${String(r.we).replace('.',',')} d finde</small></td>${['nt','ns','bs','bt'].map(k=>`<td class="num"${xi('hora',{r,k,avg:T[k]/T.h})}>${f(r[k]/r.h)}</td>`).join('')}</tr>`).join('')}
+      <tr class="sum"><th>Media</th><td class="num">${Math.round(T.h)}</td>${['nt','ns','bs','bt'].map(k=>`<td class="num">${f(T[k]/T.h)}</td>`).join('')}</tr></tbody></table></div>
+      <p class="hint">* Año incompleto (horas prorrateadas). Media ponderada: euros totales ÷ horas totales. "Sueldo" excluye dietas y kilometraje; "Neto ingresado" es lo que llegó a tu cuenta. Las horas de fin de semana pueden estar ya compensadas con la bolsa de horas: en ese caso el € por hora real sería mayor.</p>
+    </details></div>` }
+const _explain2=explain; explain=function(k,c){
+  const f=v=>v.toFixed(2).replace('.',','), L={nt:['Neto ingresado por hora','Todo lo que llegó a tu cuenta (sueldo y dietas) dividido entre las horas trabajadas.'],ns:['Sueldo neto por hora','Tu sueldo neto sin dietas ni kilometraje (que compensan gastos) dividido entre las horas trabajadas. A las dietas que tributan se les quita su parte proporcional de IRPF y Seguridad Social.'],bs:['Sueldo bruto por hora','Tu sueldo bruto sin dietas ni kilometraje dividido entre las horas trabajadas.'],bt:['Total bruto por hora','Todo lo devengado en tus nóminas, dietas incluidas, dividido entre las horas trabajadas.']};
+  if(k==='hora'){ const r=c.r; return {t:`${L[c.k][0]} · ${r.y}`,v:f(r[c.k]/r.h)+' €/h',what:L[c.k][1],you:`${eur(r[c.k])} ÷ ${Math.round(r.h)} h = <b>${f(r[c.k]/r.h)} €/h</b><br>Media de todos los años: ${f(c.avg)} €/h${c.k==='ns'?`<br><br>Cálculo: neto ${eur(r.nt)} − dietas exentas ${eur(r.de)} − dietas que tributan ${eur(r.dt)} × (1 − ${pc1(100*r.ret)} IRPF − ${pc1(100*r.ssr)} SS)`:''}${c.k==='bs'?`<br><br>Cálculo: bruto ${eur(r.bt)} − dietas y km ${eur(r.de+r.dt)}`:''}`,tip:'Si los fines de semana se compensaron con días libres (bolsa de horas), las horas reales son menos y el € por hora, mayor.'} }
+  if(k==='hora_h'){ const r=c.r; return {t:`Horas trabajadas · ${r.y}`,v:Math.round(r.h)+' h',what:`Jornada anual de tu calendario (hoja Ajustes del Excel: ${S.cfg.jornada} h), prorrateada por los días del año con nómina, más ${WEH} h por cada día de fin de semana o festivo pagado con plus.`,you:`Calendario: ${S.cfg.jornada} h × ${Math.round(r.dias)} días con nómina ÷ días del año = ${Math.round(r.hc)} h<br>Fines de semana: ${String(r.we).replace('.',',')} días × ${WEH} h = ${Math.round(r.we*WEH)} h<br><b>Total: ${Math.round(r.h)} h</b>`,tip:'La jornada es la misma para todos los años. Si algún año fue distinta (desplazamientos, otro calendario), las horas pueden variar.'} }
+  return _explain2(k,c) };
+const _sfw1=stateFromWorkbook; stateFromWorkbook=function(buf){ const st=_sfw1(buf); try{ const wb=XLSX.read(buf,{type:'array'}); const a=(wb.Sheets.Ajustes?XLSX.utils.sheet_to_json(wb.Sheets.Ajustes,{defval:''}):[])[0]; if(a&&a.jornada_anual!==''&&a.jornada_anual!=null) st.cfg.jornada=+String(a.jornada_anual).replace(',','.') }catch(e){} return st };
+const _wfs1=workbookFromState; workbookFromState=function(){ const buf=_wfs1(); if(!S.cfg.jornada) return buf; const wb=XLSX.read(buf,{type:'array'}); const A=wb.Sheets.Ajustes?XLSX.utils.sheet_to_json(wb.Sheets.Ajustes,{defval:''}):[{}]; A[0].jornada_anual=S.cfg.jornada; wb.Sheets.Ajustes=XLSX.utils.json_to_sheet(A); return XLSX.write(wb,{type:'array',bookType:'xlsx'}) };
+const _iu1=importUpdate; importUpdate=async function(file){ const buf=await file.arrayBuffer(); const r=await _iu1({arrayBuffer:async()=>buf,name:file.name}); try{ const wb=XLSX.read(buf,{type:'array'}); const a=(wb.Sheets.Ajustes?XLSX.utils.sheet_to_json(wb.Sheets.Ajustes,{defval:''}):[])[0]; if(a&&a.jornada_anual!==''&&a.jornada_anual!=null){ S.cfg.jornada=+String(a.jornada_anual).replace(',','.'); logChange('Jornada anual','ajustes','','Salario',S.cfg.jornada+' h',{origen:'Importación'}) } }catch(e){} return r };
 
 /* ---------- arranque ---------- */
 document.getElementById('loginbtn').onclick=()=>login();
