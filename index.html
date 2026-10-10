@@ -273,6 +273,32 @@ input,select,textarea{background:var(--surface-2)!important;color:var(--ink)!imp
 #masbtn{color:var(--muted)}
 details.kw summary>span.num{font-weight:700}
 details.kw .hbar.yb,.hbar.yb{grid-template-columns:44px minmax(0,1fr) 96px}
+.sbar{display:flex;height:14px;border-radius:999px;overflow:hidden;gap:2px;margin:4px 0 12px}
+.sbar.big{height:22px;border-radius:10px}
+.sbar i{display:block;height:100%;cursor:pointer;min-width:3px}
+.slg{display:flex;flex-wrap:wrap;gap:8px 14px;font-size:13px}
+.slg span{display:flex;align-items:center;gap:6px;cursor:pointer}
+.slg i{width:10px;height:10px;border-radius:3px;display:inline-block}
+.slg small{color:var(--muted)}
+.gbar{display:grid;grid-template-columns:10px minmax(0,1fr) 30% 92px;gap:10px;align-items:center;padding:9px 2px;border-radius:10px;font-size:13.5px;cursor:pointer}
+.gbar:active{background:var(--surface-2)}
+.gb-d{width:10px;height:10px;border-radius:3px;display:inline-block;flex:none}
+.gb-l{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gb-t{height:8px;background:var(--surface-2);border-radius:999px;overflow:hidden}
+.gb-t i{display:block;height:100%;border-radius:999px}
+.gb-v{text-align:right;font-weight:700;line-height:1.1}.gb-v small{display:block;color:var(--muted);font-weight:500;font-size:11px}
+.cal{display:grid;grid-template-columns:22px repeat(12,minmax(0,1fr));grid-auto-rows:30px;gap:3px;font-size:9.5px}
+.cm,.cy{color:var(--muted);text-align:center;font-weight:700;align-self:center}
+.cc{height:30px;border-radius:6px;display:grid;place-items:center;color:#06231a;font-weight:700;cursor:pointer;position:relative;letter-spacing:-.03em}
+.cc.empty{background:var(--surface-2);opacity:.35;cursor:default}
+.cc.fb::after,.cc.fe::after{content:"";position:absolute;top:2px;right:2px;width:5px;height:5px;border-radius:50%}
+.cc.fb::after{background:#FFC857}.cc.fe::after{background:#5B8CFF}
+.calk{display:flex;gap:12px;flex-wrap:wrap;color:var(--muted);font-size:12px;margin-top:10px}
+.calk i{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px}.calk .fb{background:#FFC857}.calk .fe{background:#5B8CFF}
+.nomhl{margin:0;padding-left:18px;font-size:14px;line-height:1.5}.nomhl li{margin:0 0 6px}
+.nomnav{display:flex;gap:8px}.nomnav .iconbtn{font-size:22px;color:var(--ink)}
+details.kw.card{padding-top:4px}
+#dlg .row .gb-d{margin-right:10px}
 </style>
 </head>
 <body>

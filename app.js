@@ -1943,6 +1943,97 @@ function explain9(key,c){
   return null }
 const _explain0=explain; explain=function(k,c){ return explain9(k,c)||_explain0(k,c) };
 
+
+/* ================== V10: SALARIO más visual (gráfico, calendario y barras de reparto) ================== */
+const NCOL={base:'#5B8CFF',prod:'#7FA8FF',vol:'#A9C2FF',extra:'#38C6A8',bonus:'#FFC857',disp:'#C9B6FF',finde:'#B08CFF',estancia:'#E38CFF',noct:'#8C7BFF',plusvol:'#D7A6FF',conv:'#6FE3C9',km:'#9AA7B8',dietas:'#4FD1E8',especie:'#6B7A90',flex:'#FF8FA3',devol:'#FF6B6B',ajuste:'#55606F',ss:'#C9B6FF',irpf:'#FF9F7A',irpfnr:'#6B7A90',devolr:'#FF6B6B',otros:'#55606F'};
+const NETC='#3DDC97';
+const kfmt=v=>Math.abs(v)>=1000?String(Math.round(v/100)/10).replace('.',',')+'k':String(Math.round(v));
+let SALCHART=null;
+function nomParts(list){ const t=nomTot(list); const otros=Math.max(0,t.ded-t.irpf-t.ss); return {t,parts:[{k:'neto',l:'Neto',v:t.liq,c:NETC},{k:'irpf',l:'IRPF',v:t.irpf,c:NCOL.irpf},{k:'ss',l:'Seg. Social',v:t.ss,c:NCOL.ss},{k:'otros',l:'Otros descuentos',v:otros,c:'#6B7A90'}]} }
+function stackBar(parts,keyFn){ const tot=parts.reduce((s,p)=>s+Math.max(0,p.v),0)||1;
+  return `<div class="sbar">${parts.filter(p=>p.v>0).map(p=>`<i style="flex:${p.v};background:${p.c}"${keyFn?keyFn(p):''} title="${esc(p.l)}"></i>`).join('')}</div>
+  <div class="slg">${parts.filter(p=>p.v>0).map(p=>`<span${keyFn?keyFn(p):''}><i style="background:${p.c}"></i>${esc(p.l)} <b class="num">${eur(p.v)}</b> <small>${Math.round(100*p.v/tot)} %</small></span>`).join('')}</div>` }
+function grpBars(list,d){ const g=nomAgg(list); const xs=Object.values(g).filter(o=>!!o.G.d===d&&o.tot>0).sort((a,b)=>b.tot-a.tot); const tot=xs.reduce((s,o)=>s+o.tot,0)||1; const mx=xs[0]?.tot||1;
+  return `<div class="sbar big">${xs.map(o=>`<i style="flex:${o.tot};background:${NCOL[o.G.k]||'#55606F'}" data-grp="${(d?'d':'r')+o.G.k}"></i>`).join('')}</div>
+  ${xs.map(o=>`<div class="gbar" data-grp="${(d?'d':'r')+o.G.k}" role="button" tabindex="0"><span class="gb-d" style="background:${NCOL[o.G.k]||'#55606F'}"></span><span class="gb-l">${esc(o.G.l)}</span><span class="gb-t"><i style="width:${100*o.tot/mx}%;background:${NCOL[o.G.k]||'#55606F'}"></i></span><span class="gb-v num">${eur(o.tot)}<small>${pc1(100*o.tot/tot)}</small></span></div>`).join('')}` }
+function calHtml(all,years){ const mx=Math.max(...all.map(n=>n.liq)), mn=Math.min(...all.filter(n=>n.dias>20).map(n=>n.liq));
+  const cell=(y,m)=>{ const ns=all.filter(n=>nomY(n)===y&&+n.desde.slice(5,7)===m+1); if(!ns.length) return `<span class="cc empty"></span>`; const liq=ns.reduce((s,n)=>s+n.liq,0); const a=Math.max(.12,Math.min(1,(liq-mn*.8)/(mx-mn*.8)));
+    const flag=ns.some(n=>n.L.some(l=>/^(2053|2102)$/.test(l.cod)))?'b':ns.some(n=>n.L.some(l=>/^(4000|4001)$/.test(l.cod)))?'e':'';
+    return `<span class="cc${flag?' f'+flag:''}" data-nom="${esc(ns[ns.length-1].id)}" role="button" tabindex="0" style="background:rgba(61,220,151,${a.toFixed(2)});color:${a<.55?'#E8FFF4':'#06231a'}" title="${esc(nomLabel(ns[0]))}: ${eur(liq)}">${kfmt(liq)}</span>` };
+  return `<div class="cal"><span></span>${MESES.map(m=>`<span class="cm">${m[0].toUpperCase()}</span>`).join('')}${years.slice().reverse().map(y=>`<span class="cy">${y.slice(2)}</span>${MESES.map((_,m)=>cell(y,m)).join('')}`).join('')}</div>
+  <div class="calk"><span><i class="fb"></i>Bonus</span><span><i class="fe"></i>Paga extra</span><span>Más verde = más neto</span></div>` }
+renderSalario=function(){
+  const el=$('#salario'); if(!el) return; const all=S.nom||[];
+  if(!all.length){ el.innerHTML=`<div class="card empty"><b>Todavía no hay nóminas.</b><p>Importa el Excel de nóminas desde el botón <b>+</b> › Importar. Se guardarán solo en tu Excel de OneDrive.</p></div>`; return }
+  const years=[...new Set(all.map(nomY))].sort(); if(SALY!=='todo'&&!years.includes(SALY)) SALY='todo';
+  const list=SALY==='todo'?all:all.filter(n=>nomY(n)===SALY); const {t,parts}=nomParts(list);
+  const scope=SALY==='todo'?`${years[0]}–${years[years.length-1]}`:SALY; const ctx={...t,scope};
+  const prevY=SALY!=='todo'?nomTot(all.filter(n=>nomY(n)===String(+SALY-1))):null;
+  const kp=p=>` ${p.k==='neto'?xi('sal_neto',ctx):p.k==='irpf'?xi('sal_irpf',ctx):p.k==='ss'?xi('sal_ss',ctx):xi('sal_bruto',ctx)}`;
+  el.innerHTML=`<div class="chips">${['todo',...years].map(y=>`<button class="chip" data-saly="${y}" aria-pressed="${SALY===y}">${y==='todo'?'Todo':y}</button>`).join('')}</div>
+  <div class="hero"><div class="hero-l">Neto cobrado · ${esc(scope)}</div><div class="hero-n num"${xi('sal_neto',ctx)}>${eur(t.liq)}</div>
+    <div class="hero-pills"><span class="pill num"${xi('sal_bruto',ctx)}>de ${eur(t.dev)} brutos</span>${prevY&&prevY.n?`<span class="pill num ${t.liq>=prevY.liq?'pos':'neg'}"${xi('sal_year',{y:SALY,...t,prev:prevY})}>${pc1(100*(t.liq/prevY.liq-1)).replace(/^(?!-)/,'+')} vs ${+SALY-1}</span>`:''}</div></div>
+  <div class="card"><div class="card-h">De cada 100 € brutos</div>${stackBar(parts,kp)}</div>
+  <div class="tiles three" style="margin:0 0 14px">
+    <div class="tile"${xi('sal_media',ctx)}><span>Neto medio</span><b class="num">${eur(t.liq/t.n)}</b><small>${t.n} nóminas</small></div>
+    <div class="tile"${xi('sal_ret',ctx)}><span>Retención</span><b class="num">${pc1(100*t.irpf/(t.birpf||1))}</b><small>media IRPF</small></div>
+    <div class="tile"${xi('sal_coste',ctx)}><span>Coste empresa</span><b class="num">${kfmt(t.dev+t.sse)} €</b><small>bruto + SS</small></div></div>
+  <div class="card"><div class="card-h">${SALY==='todo'?'Año a año':'Mes a mes'} <small>toca una barra</small></div><div class="chartbox sm"><canvas id="salchart" aria-label="Neto, IRPF y Seguridad Social"></canvas></div>
+    <div class="legend"><span><i style="background:${NETC}"></i>Neto</span><span><i style="background:${NCOL.irpf}"></i>IRPF</span><span><i style="background:${NCOL.ss}"></i>Seg. Social</span></div></div>
+  <div class="card"><div class="card-h">Todas tus nóminas <small>toca un mes</small></div>${calHtml(all,SALY==='todo'?years:[SALY])}</div>
+  <div class="card"><div class="card-h">De dónde sale tu bruto</div>${grpBars(list,true)}</div>
+  <div class="card"><div class="card-h">A dónde van los descuentos</div>${grpBars(list,false)}</div>
+  <p class="hint">Todo se puede tocar para ver el detalle. Los importes se guardan solo en tu Excel de OneDrive.</p>`;
+  el.querySelectorAll('[data-saly]').forEach(b=>b.onclick=()=>{ SALY=b.dataset.saly; renderSalario() });
+  el.querySelectorAll('[data-grp]').forEach(b=>b.onclick=()=>openGrp(b.dataset.grp));
+  if(TAB==='salario') setTimeout(drawSalChart,0);
+};
+function drawSalChart(){ if(!window.Chart) return; const cv=$('#salchart'); if(!cv) return; if(SALCHART) SALCHART.destroy(); const all=S.nom||[];
+  const mut=css('--muted'), line=css('--line'); let rows;
+  if(SALY==='todo'){ const ys=[...new Set(all.map(nomY))].sort(); rows=ys.map(y=>{ const t=nomTot(all.filter(n=>nomY(n)===y)); return {l:y,key:y,t} }) }
+  else rows=all.filter(n=>nomY(n)===SALY).map(n=>({l:nomLabel(n,true),key:n.id,t:nomTot([n])}));
+  SALCHART=new Chart(cv,{type:'bar',data:{labels:rows.map(r=>r.l),datasets:[{label:'Neto',data:rows.map(r=>r.t.liq),backgroundColor:NETC,borderRadius:4,stack:'s'},{label:'IRPF',data:rows.map(r=>r.t.irpf),backgroundColor:NCOL.irpf,stack:'s'},{label:'Seg. Social',data:rows.map(r=>r.t.ss),backgroundColor:NCOL.ss,borderRadius:4,stack:'s'}]},
+    options:{responsive:true,maintainAspectRatio:false,onClick:(e,els)=>{ if(!els.length) return; const r=rows[els[0].index]; if(SALY==='todo'){ SALY=r.key; renderSalario() } else openNom(r.key) },
+      scales:{x:{stacked:true,ticks:{color:mut,maxRotation:0,autoSkip:true},grid:{display:false},border:{display:false}},y:{stacked:true,position:'right',ticks:{color:mut,maxTicksLimit:4,callback:v=>kfmt(v)+' €'},grid:{color:line},border:{display:false}}},
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${eur(c.parsed.y)}`,footer:i=>'Bruto aprox.: '+eur(rows[i[0].dataIndex].t.dev)}}}}}) }
+const _go1=go; go=function(t){ _go1(t); if(t==='salario') setTimeout(drawSalChart,0) };
+
+function openGrp(key){ const all=S.nom||[]; const list=SALY==='todo'?all:all.filter(n=>nomY(n)===SALY); const g=nomAgg(list)[key]; if(!g) return; const G=g.G; const col=NCOL[G.k]||'#55606F';
+  const ys=Object.keys(g.byY).sort(); const mx=Math.max(...ys.map(y=>Math.abs(g.byY[y])))||1; const cs=Object.values(g.byC).sort((a,b)=>Math.abs(b.tot)-Math.abs(a.tot)); const dlg=$('#dlg');
+  dlg.innerHTML=`<div class="pd-top"><button class="iconbtn" data-close aria-label="Cerrar">${ICON.back}</button><span></span></div>
+  <div class="pd"><div class="pd-n"><span class="gb-d" style="background:${col}"></span> ${esc(G.l)}</div><div class="pd-s">${G.d?'Lo que cobras':'Lo que te descuentan'} · ${SALY==='todo'?'todas tus nóminas':SALY}</div>
+    <div class="pd-v num"${xi('sal_grp',{k:G.k,d:G.d,tot:g.tot,share:100*g.tot/((G.d?nomTot(list).dev:nomTot(list).ded)||1),byY:g.byY})}>${eur(g.tot)}</div>
+    <div class="card"><p>${G.w}</p>${G.x?`<div class="sh-tip">${ICON.info}<span>${G.x}</span></div>`:''}</div>
+    ${ys.length>1?`<div class="card"><div class="card-h">Por año</div>${ys.map(y=>`<div class="hbar yb"${xi('sal_grp_y',{k:G.k,d:G.d,y,v:g.byY[y],tot:g.tot})}><span class="hb-l">${y}</span><span class="hb-t"><i style="width:${100*Math.abs(g.byY[y])/mx}%;background:${col}"></i></span><span class="hb-v num">${eur(g.byY[y])}</span></div>`).join('')}</div>`:''}
+    <div class="card"><div class="card-h">Conceptos <small>${cs.length}</small></div>${cs.map(c=>`<div class="row"${xi('sal_con',{con:c.con,cod:c.cod,k:G.k,d:G.d,tot:c.tot,n:c.n,byY:c.byY,dif:c.dif})}><span class="row-m"><b>${esc(c.con)}</b><small>${c.n} nómina${c.n===1?'':'s'}${c.dif?` · ${eur(c.dif)} en atrasos`:''}</small></span><span class="row-r num">${eur(c.tot,2)}</span></div>`).join('')}</div>
+  </div>`; openSheet(dlg) }
+
+const _openNom0=openNom;
+openNom=function(id){ const n=nomById(id); if(!n) return; const all=S.nom||[]; const i=all.indexOf(n); const pv=all[i-1], nx=all[i+1]; const dlg=$('#dlg');
+  const L=n.L.map((l,i)=>({l,i})); const dev=L.filter(x=>x.l.tipo==='devengo'), ded=L.filter(x=>x.l.tipo==='deduccion'), inf=L.filter(x=>x.l.tipo==='informativo');
+  const {parts}=nomParts([n]); const kp=p=>` ${p.k==='neto'?xi('nom_liq',{id}):p.k==='irpf'?xi('nom_base',{id,b:'irpf'}):p.k==='ss'?xi('nom_base',{id,b:'cc'}):xi('nom_ded',{id})}`;
+  const g=nomAgg([n]); const comp=Object.values(g).filter(o=>o.G.d&&o.tot>0).sort((a,b)=>b.tot-a.tot).map(o=>({k:o.G.k,l:o.G.l,v:o.tot,c:NCOL[o.G.k]||'#55606F'}));
+  const an=nomAnalysis(n); const diff=pv?n.liq-pv.liq:null;
+  const lineHtml=xs=>xs.map(x=>{ const l=x.l, G=nomGroup(l); return `<div class="row"${xi('nom_line',{id:n.id,i:x.i})}><span class="gb-d" style="background:${NCOL[G.k]||'#55606F'}"></span><span class="row-m"><b>${esc(l.con)}</b><small>${esc(G.l)}${l.uds!=null&&l.pre!=null?` · ${String(l.uds).replace('.',',')} × ${String(l.pre).replace('.',',')}`:l.pct!=null?` · ${String(l.pct).replace('.',',')} %`:''}</small></span><span class="row-r num">${l.imp!=null&&l.tipo!=='informativo'?e2(l.imp):'—'}</span></div>` }).join('');
+  dlg.innerHTML=`<div class="pd-top"><button class="iconbtn" data-close aria-label="Cerrar">${ICON.back}</button><span class="nomnav">${pv?`<button class="iconbtn" data-nomgo="${esc(pv.id)}" aria-label="Nómina anterior">‹</button>`:''}${nx?`<button class="iconbtn" data-nomgo="${esc(nx.id)}" aria-label="Nómina siguiente">›</button>`:''}</span></div>
+  <div class="pd"><div class="pd-n">${esc(nomLabel(n))}</div><div class="pd-s">${esc(n.cat)} · ${n.dias??''} días</div>
+    <div class="pd-v num"${xi('nom_liq',{id})}>${e2(n.liq)}</div><div class="pd-g">netos${diff!=null?` · <span class="${diff>=0?'pos':'neg'}">${signed(diff)} vs ${esc(nomLabel(pv,true))}</span>`:''}</div>
+    <div class="card"><div class="card-h">Tu bruto de ${eur(n.dev)} se reparte así</div>${stackBar(parts,kp)}</div>
+    <div class="card"><div class="card-h">De dónde sale</div>${stackBar(comp,p=>` data-grpn="${p.k}"`)}</div>
+    <div class="card"><div class="card-h">Lo destacado</div><ul class="nomhl">${an.map(s=>`<li>${s}</li>`).join('')}</ul></div>
+    <details class="kw card"><summary>Lo que cobras <small>${dev.length}</small></summary>${lineHtml(dev)}</details>
+    <details class="kw card"><summary>Lo que te descuentan <small>${ded.length}</small></summary>${lineHtml(ded)}</details>
+    <details class="kw card"><summary>Bases de cálculo</summary>
+      <div class="row"${xi('nom_base',{id,b:'irpf'})}><span class="row-m"><b>Base sujeta a IRPF</b></span><span class="row-r num">${n.birpf!=null?e2(n.birpf):'—'}</span></div>
+      <div class="row"${xi('nom_base',{id,b:'cc'})}><span class="row-m"><b>Base de cotización</b></span><span class="row-r num">${n.bcc!=null?e2(n.bcc):'—'}</span></div>
+      <div class="row"${xi('nom_base',{id,b:'pro'})}><span class="row-m"><b>Prorrata de pagas extra</b></span><span class="row-r num">${n.pro!=null?e2(n.pro):'—'}</span></div>
+      <div class="row"${xi('nom_sse',{id})}><span class="row-m"><b>Seguridad Social de la empresa</b></span><span class="row-r num">${n.sse!=null?e2(n.sse):'—'}</span></div>${lineHtml(inf)}</details>
+  </div>`;
+  openSheet(dlg); dlg.scrollTop=0;
+  dlg.querySelectorAll('[data-nomgo]').forEach(b=>b.onclick=()=>openNom(b.dataset.nomgo));
+  dlg.querySelectorAll('[data-grpn]').forEach(b=>b.onclick=()=>{ const ln=n.L.map((l,i)=>({l,i})).filter(x=>x.l.tipo==='devengo'&&nomGroup(x.l).k===b.dataset.grpn); const d=dlg.querySelectorAll('details.kw')[0]; d.open=true; d.scrollIntoView({behavior:'smooth'}) });
+};
+
 /* ---------- arranque ---------- */
 document.getElementById('loginbtn').onclick=()=>login();
 const _cl=document.getElementById('clearlog'); if(_cl) _cl.onclick=()=>{ try{localStorage.removeItem('pat_log');localStorage.removeItem('pat_loop')}catch(e){} document.getElementById('gatelog').textContent='' };
