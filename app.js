@@ -1789,6 +1789,7 @@ const NG=[
  {k:'finde',l:'Plus de fin de semana y festivos',d:1,t:c=>c==='2020',w:'Pago por trabajar en sábado, domingo o festivo. Las unidades son los días trabajados.',x:TAXD},
  {k:'estancia',l:'Plus de larga estancia',d:1,t:c=>c==='2021',w:'Pago único que se cobra al superar un número de días seguidos desplazado.',x:TAXD},
  {k:'noct',l:'Plus de nocturnidad',d:1,t:c=>c==='2004',w:'Pago por horas trabajadas de noche. Las unidades son las horas; el precio, lo que vale cada hora nocturna.',x:TAXD},
+ {k:'covid',l:'Plus COVID',d:1,t:c=>false,w:'Pago extraordinario que la empresa abonó por trabajar durante la pandemia de COVID-19.',x:TAXD},
  {k:'plusvol',l:'Plus voluntario',d:1,t:c=>c==='2040',w:'Plus pagado por decisión de la empresa, fuera de la tabla del convenio.',x:TAXD},
  {k:'conv',l:'Anticipos y pagos de convenio',d:1,t:c=>c==='2134'||c==='2244',w:'Cuando el convenio está sin firmar, la empresa puede adelantar una parte de la subida prevista ("a cuenta de convenio"). Al firmarse se calcula lo que te correspondía y se descuenta lo ya adelantado. "Pago único" es una cantidad fija pactada en el convenio.',x:TAXD},
  {k:'km',l:'Kilometraje',d:1,t:c=>c==='2001'||c.startsWith('26'),w:'Lo que te pagan por usar tu coche en el trabajo. Las unidades son los kilómetros; el precio, lo que se paga por kilómetro.',x:'Hasta el límite legal por kilómetro no tributa; la línea "Klm. cotiza" es la parte que sí cuenta para la Seguridad Social.'},
@@ -1803,7 +1804,7 @@ const NG=[
  {k:'devolr',l:'Devoluciones a la empresa',d:0,t:c=>c==='/GMB'||c==='9563',w:'Descuento para devolver a la empresa un pago anterior o regularizar una cantidad a su favor.',x:'Conviene que tu asesor fiscal sepa que lo devolviste.'},
 ];
 const NGO={k:'otros',l:'Otros conceptos',d:1,t:()=>true,w:'Concepto poco habitual. Revisa la nómina original si necesitas el detalle.',x:''};
-function nomGroup(l){ const ded=l.tipo==='deduccion'; return NG.find(g=>(!!g.d)===!ded&&g.t(l.cod))||(ded?Object.assign({},NGO,{d:0}):NGO) }
+function nomGroup(l){ const ded=l.tipo==='deduccion'; if(!ded&&/covid/i.test(l.con||'')) return NG.find(g=>g.k==='covid'); return NG.find(g=>(!!g.d)===!ded&&g.t(l.cod))||(ded?Object.assign({},NGO,{d:0}):NGO) }
 const nomDif=l=>/^DIF\./i.test(l.con);
 const nomCon=l=>l.con.replace(/^DIF\.\s*/i,'');
 function nomLabel(n,short){ const m=+n.desde.slice(5,7)-1, y=n.desde.slice(0,4); const part=n.desde.slice(8)!=='01'||(n.hasta&&+n.hasta.slice(8)<28);
@@ -1945,7 +1946,7 @@ const _explain0=explain; explain=function(k,c){ return explain9(k,c)||_explain0(
 
 
 /* ================== V10: SALARIO más visual (gráfico, calendario y barras de reparto) ================== */
-const NCOL={base:'#5B8CFF',prod:'#7FA8FF',vol:'#A9C2FF',extra:'#38C6A8',bonus:'#FFC857',disp:'#C9B6FF',finde:'#B08CFF',estancia:'#E38CFF',noct:'#8C7BFF',plusvol:'#D7A6FF',conv:'#6FE3C9',km:'#9AA7B8',dietas:'#4FD1E8',especie:'#6B7A90',flex:'#FF8FA3',devol:'#FF6B6B',ajuste:'#55606F',ss:'#C9B6FF',irpf:'#FF9F7A',irpfnr:'#6B7A90',devolr:'#FF6B6B',otros:'#55606F'};
+const NCOL={covid:'#FF7EB6',base:'#5B8CFF',prod:'#7FA8FF',vol:'#A9C2FF',extra:'#38C6A8',bonus:'#FFC857',disp:'#C9B6FF',finde:'#B08CFF',estancia:'#E38CFF',noct:'#8C7BFF',plusvol:'#D7A6FF',conv:'#6FE3C9',km:'#9AA7B8',dietas:'#4FD1E8',especie:'#6B7A90',flex:'#FF8FA3',devol:'#FF6B6B',ajuste:'#55606F',ss:'#C9B6FF',irpf:'#FF9F7A',irpfnr:'#6B7A90',devolr:'#FF6B6B',otros:'#55606F'};
 const NETC='#3DDC97';
 const kfmt=v=>Math.abs(v)>=1000?String(Math.round(v/100)/10).replace('.',',')+'k':String(Math.round(v));
 let SALCHART=null;
@@ -2036,7 +2037,7 @@ openNom=function(id){ const n=nomById(id); if(!n) return; const all=S.nom||[]; c
 
 
 /* ================== V11: SALARIO · extras y pluses por año ================== */
-const XTR=[{k:'bonus',l:'Bonus objetivos',u:null},{k:'disp',l:'Disponibilidad',u:'días'},{k:'finde',l:'Fin de semana',u:'días'},{k:'noct',l:'Nocturnidad',u:'horas'},{k:'estancia',l:'Larga estancia',u:null},{k:'plusvol',l:'Plus voluntario',u:null},{k:'conv',l:'Convenio',u:null},{k:'dietas',l:'Dietas *',u:'días'},{k:'km',l:'Kilometraje *',u:'km'}];
+const XTR=[{k:'bonus',l:'Bonus objetivos',u:null},{k:'disp',l:'Disponibilidad',u:'días'},{k:'finde',l:'Fin de semana',u:'días'},{k:'noct',l:'Nocturnidad',u:'horas'},{k:'estancia',l:'Larga estancia',u:null},{k:'covid',l:'Plus COVID',u:null},{k:'plusvol',l:'Plus voluntario',u:null},{k:'conv',l:'Convenio',u:null},{k:'dietas',l:'Dietas *',u:'días'},{k:'km',l:'Kilometraje *',u:'km'}];
 function extrasData(all){ const D={}; all.forEach(n=>n.L.forEach(l=>{ if(l.tipo!=='devengo'||l.imp==null) return; const G=nomGroup(l); if(!XTR.some(x=>x.k===G.k)) return; const y=nomY(n);
   const o=(D[G.k]||(D[G.k]={}))[y]||(D[G.k][y]={v:0,u:0,dif:0}); o.v+=l.imp; if(nomDif(l)) o.dif+=l.imp; else if(l.uds!=null&&l.pre!=null) o.u+=l.uds })); return D }
 function extrasHtml(all,years){ const D=extrasData(all); const rows=XTR.filter(x=>D[x.k]); if(!rows.length) return ''; const tot=k=>years.reduce((s,y)=>s+(D[k]?.[y]?.v||0),0);
