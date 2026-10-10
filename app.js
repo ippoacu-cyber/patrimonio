@@ -1981,7 +1981,7 @@ renderSalario=function(){
   <div class="card"><div class="card-h">${SALY==='todo'?'Año a año':'Mes a mes'} <small>toca una barra</small></div><div class="chartbox sm"><canvas id="salchart" aria-label="Neto, IRPF y Seguridad Social"></canvas></div>
     <div class="legend"><span><i style="background:${NETC}"></i>Neto</span><span><i style="background:${NCOL.irpf}"></i>IRPF</span><span><i style="background:${NCOL.ss}"></i>Seg. Social</span></div></div>
   <div class="card"><div class="card-h">Todas tus nóminas <small>toca un mes</small></div>${calHtml(all,SALY==='todo'?years:[SALY])}</div>
-  <div class="card"><div class="card-h">De dónde sale tu bruto</div>${grpBars(list,true)}</div>
+  ${extrasHtml(all,SALY==='todo'?years:[SALY])}<div class="card"><div class="card-h">De dónde sale tu bruto</div>${grpBars(list,true)}</div>
   <div class="card"><div class="card-h">A dónde van los descuentos</div>${grpBars(list,false)}</div>
   <p class="hint">Todo se puede tocar para ver el detalle. Los importes se guardan solo en tu Excel de OneDrive.</p>`;
   el.querySelectorAll('[data-saly]').forEach(b=>b.onclick=()=>{ SALY=b.dataset.saly; renderSalario() });
@@ -2033,6 +2033,31 @@ openNom=function(id){ const n=nomById(id); if(!n) return; const all=S.nom||[]; c
   dlg.querySelectorAll('[data-nomgo]').forEach(b=>b.onclick=()=>openNom(b.dataset.nomgo));
   dlg.querySelectorAll('[data-grpn]').forEach(b=>b.onclick=()=>{ const ln=n.L.map((l,i)=>({l,i})).filter(x=>x.l.tipo==='devengo'&&nomGroup(x.l).k===b.dataset.grpn); const d=dlg.querySelectorAll('details.kw')[0]; d.open=true; d.scrollIntoView({behavior:'smooth'}) });
 };
+
+
+/* ================== V11: SALARIO · extras y pluses por año ================== */
+const XTR=[{k:'bonus',l:'Bonus objetivos',u:null},{k:'disp',l:'Disponibilidad',u:'días'},{k:'finde',l:'Fin de semana',u:'días'},{k:'noct',l:'Nocturnidad',u:'horas'},{k:'estancia',l:'Larga estancia',u:null},{k:'plusvol',l:'Plus voluntario',u:null},{k:'conv',l:'Convenio',u:null},{k:'dietas',l:'Dietas *',u:'días'},{k:'km',l:'Kilometraje *',u:'km'}];
+function extrasData(all){ const D={}; all.forEach(n=>n.L.forEach(l=>{ if(l.tipo!=='devengo'||l.imp==null) return; const G=nomGroup(l); if(!XTR.some(x=>x.k===G.k)) return; const y=nomY(n);
+  const o=(D[G.k]||(D[G.k]={}))[y]||(D[G.k][y]={v:0,u:0,dif:0}); o.v+=l.imp; if(nomDif(l)) o.dif+=l.imp; else if(l.uds!=null&&l.pre!=null) o.u+=l.uds })); return D }
+function extrasHtml(all,years){ const D=extrasData(all); const rows=XTR.filter(x=>D[x.k]); if(!rows.length) return ''; const tot=k=>years.reduce((s,y)=>s+(D[k]?.[y]?.v||0),0);
+  const pay=rows.filter(x=>!['dietas','km'].includes(x.k)); const ysum=y=>pay.reduce((s,x)=>s+(D[x.k]?.[y]?.v||0),0);
+  const cell=(x,y)=>{ const o=D[x.k]?.[y]; return o&&Math.abs(o.v)>=.5?`<td class="num"${xi('xtr',{k:x.k,l:x.l,u:x.u,y,...o})}>${kfmt(o.v)}${x.u&&o.u?`<small>${String(Math.round(o.u*10)/10).replace('.',',')} ${x.u}</small>`:''}</td>`:'<td class="z">—</td>' };
+  const we=years.map(y=>(D.disp?.[y]?.u||0)+(D.finde?.[y]?.u||0));
+  return `<div class="card"><div class="card-h">Extras y pluses <small>por año · toca una cifra</small></div>
+  <div class="xtw"><table class="xt"><thead><tr><th></th>${years.map(y=>`<th>${y}</th>`).join('')}<th>Total</th></tr></thead><tbody>
+  ${pay.map(x=>`<tr><th><span class="gb-d" style="background:${NCOL[x.k]}"></span>${esc(x.l)}</th>${years.map(y=>cell(x,y)).join('')}<td class="num t">${kfmt(tot(x.k))}</td></tr>`).join('')}
+  <tr class="sum"><th>Total extras</th>${years.map(y=>`<td class="num"${xi('xtr_y',{y,v:ysum(y),parts:pay.map(x=>[x.l,D[x.k]?.[y]?.v||0])})}>${kfmt(ysum(y))}</td>`).join('')}<td class="num t">${kfmt(years.reduce((s,y)=>s+ysum(y),0))}</td></tr>
+  ${rows.filter(x=>['dietas','km'].includes(x.k)).map(x=>`<tr class="comp"><th><span class="gb-d" style="background:${NCOL[x.k]}"></span>${esc(x.l)}</th>${years.map(y=>cell(x,y)).join('')}<td class="num t">${kfmt(tot(x.k))}</td></tr>`).join('')}
+  </tbody></table></div><p class="hint">* Compensan gastos de desplazamiento; no cuentan como extras.</p></div>
+  <div class="card"><div class="card-h"${xi('xtr_we',{})}>Fines de semana y festivos trabajados <span class="ib">${ICON.info}</span></div>
+  ${years.map((y,i)=>`<div class="hbar yb"${xi('xtr_wey',{y,d:we[i],disp:D.disp?.[y]?.u||0,finde:D.finde?.[y]?.u||0,v:(D.disp?.[y]?.v||0)+(D.finde?.[y]?.v||0)})}><span class="hb-l">${y}</span><span class="hb-t"><i style="width:${100*we[i]/(Math.max(...we)||1)}%;background:${NCOL.finde}"></i></span><span class="hb-v num">${String(Math.round(we[i]*10)/10).replace('.',',')} días</span></div>`).join('')}
+  <p class="hint">≈ ${Math.round(we.reduce((a,b)=>a+b,0)/2)} fines de semana (contando 2 días por fin de semana).</p></div>` }
+const _explain1=explain; explain=function(k,c){
+  if(k==='xtr') return {t:`${c.l} · ${c.y}`,v:eur(c.v,2),what:(NG.find(g=>g.k===c.k)||NGO).w,you:`Cobrado en ${c.y}: <b>${eur(c.v,2)}</b>.${c.u&&c.l&&c.u!==null&&c.u!=='' ?'':''}${c.u?`<br>${String(Math.round(c.u*10)/10).replace('.',',')} ${XTR.find(x=>x.k===c.k)?.u||''} pagados en líneas normales.`:''}${c.dif?`<br>Incluye ${eur(c.dif,2)} de líneas "DIF." (regularizaciones de meses anteriores), que no suman días.`:''}`,tip:(NG.find(g=>g.k===c.k)||NGO).x};
+  if(k==='xtr_y') return {t:`Extras de ${c.y}`,v:eur(c.v),what:'Todo lo que cobraste ese año por encima del sueldo fijo y las pagas extra: bonus, pluses y pagos de convenio. No incluye dietas ni kilometraje, que compensan gastos.',you:c.parts.filter(p=>Math.abs(p[1])>=.5).map(p=>`${esc(p[0])}: ${eur(p[1])}`).join('<br>')+`<br><b>Total: ${eur(c.v)}</b>`,tip:''};
+  if(k==='xtr_we') return {t:'Fines de semana y festivos',v:'',what:'Días pagados con el plus de disponibilidad (hasta 2025) y con el plus de fin de semana y festivos (desde 2025). Se cuentan las unidades de cada línea normal de la nómina.',you:'Las líneas "DIF." (regularizaciones) no suman días aunque cambien el importe.',tip:'Supone que cada unidad del plus de disponibilidad es un día de fin de semana o festivo. Si en tu caso no es así, dímelo y lo ajusto.'};
+  if(k==='xtr_wey') return {t:`Findes y festivos · ${c.y}`,v:`${String(Math.round(c.d*10)/10).replace('.',',')} días`,what:'Días de fin de semana o festivo trabajados según las unidades de los pluses.',you:`Disponibilidad: ${String(c.disp).replace('.',',')} días<br>Fin de semana y festivos: ${String(c.finde).replace('.',',')} días<br>Cobrado por ellos: <b>${eur(c.v)}</b>${c.d?` (${eur(c.v/c.d)} por día)`:''}<br>≈ ${Math.round(c.d/2*10)/10} fines de semana`,tip:''};
+  return _explain1(k,c) };
 
 /* ---------- arranque ---------- */
 document.getElementById('loginbtn').onclick=()=>login();
