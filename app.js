@@ -1780,6 +1780,7 @@ S.nom=S.nom||[];
 const MESES=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 const TAXD='Cotiza a la Seguridad Social y tributa en el IRPF.';
 const NG=[
+ {k:'fijo',l:'Sueldo fijo (SBA)',d:1,t:c=>false,w:'Tu salario bruto anual fijo (SBA): salario base + complemento de producción + asignación personal voluntaria, repartido en 14 pagas. Son los tres conceptos fijos que aparecen cada mes; las pagas extra van aparte.',x:'Cotiza a la Seguridad Social y tributa en el IRPF. Al cotizar, cuenta para tus prestaciones (paro, bajas, jubilación) y para una posible indemnización por despido.'},
  {k:'base',l:'Salario base',d:1,t:c=>c==='0001',w:'La parte fija que marca la tabla salarial del convenio para tu categoría y nivel. Sobre ella se calculan las pagas extra, los atrasos y otros complementos. Las unidades son los días del mes.',x:TAXD},
  {k:'prod',l:'Complemento de producción',d:1,t:c=>c==='0107',w:'Complemento fijo mensual ligado a tu puesto. Se cobra cada mes junto al salario base y también entra en las pagas extra.',x:TAXD},
  {k:'vol',l:'Asignación personal voluntaria',d:1,t:c=>c==='0033',w:'Plus que la empresa te paga por encima del convenio (por ejemplo, tras una subida por mérito). Suele ser "absorbible y compensable": cuando el convenio sube la tabla salarial, la empresa puede bajar este plus en la misma cantidad y tu total no cambia.',x:TAXD},
@@ -1946,7 +1947,7 @@ const _explain0=explain; explain=function(k,c){ return explain9(k,c)||_explain0(
 
 
 /* ================== V10: SALARIO más visual (gráfico, calendario y barras de reparto) ================== */
-const NCOL={covid:'#FF7EB6',base:'#5B8CFF',prod:'#7FA8FF',vol:'#A9C2FF',extra:'#38C6A8',bonus:'#FFC857',disp:'#C9B6FF',finde:'#B08CFF',estancia:'#E38CFF',noct:'#8C7BFF',plusvol:'#D7A6FF',conv:'#6FE3C9',km:'#9AA7B8',dietas:'#4FD1E8',especie:'#6B7A90',flex:'#FF8FA3',devol:'#FF6B6B',ajuste:'#55606F',ss:'#C9B6FF',irpf:'#FF9F7A',irpfnr:'#6B7A90',devolr:'#FF6B6B',otros:'#55606F'};
+const NCOL={fijo:'#5B8CFF',covid:'#FF7EB6',base:'#5B8CFF',prod:'#7FA8FF',vol:'#A9C2FF',extra:'#38C6A8',bonus:'#FFC857',disp:'#C9B6FF',finde:'#B08CFF',estancia:'#E38CFF',noct:'#8C7BFF',plusvol:'#D7A6FF',conv:'#6FE3C9',km:'#9AA7B8',dietas:'#4FD1E8',especie:'#6B7A90',flex:'#FF8FA3',devol:'#FF6B6B',ajuste:'#55606F',ss:'#C9B6FF',irpf:'#FF9F7A',irpfnr:'#6B7A90',devolr:'#FF6B6B',otros:'#55606F'};
 const NETC='#3DDC97';
 const kfmt=v=>Math.abs(v)>=1000?String(Math.round(v/100)/10).replace('.',',')+'k':String(Math.round(v));
 let SALCHART=null;
@@ -2107,7 +2108,7 @@ function tipLabel(c){ const ch=c.chart, t=ch.config.type; const v=(t==='doughnut
   else if(t==='bar'){ const sm=ch.data.datasets.filter((d,i)=>ch.isDatasetVisible(i)&&(d.stack||'')===(c.dataset.stack||'')).reduce((a,d)=>a+(+d.data[c.dataIndex]||0),0); if(sm) p=pc1(100*v/sm) }
   else { const pr=c.dataIndex>0?+c.dataset.data[c.dataIndex-1]:null; if(pr) p=(v>=pr?'+':'')+pc1(100*(v/pr-1))+' vs anterior' }
   return `${name?name+': ':''}${eur(v,2)}${p?' · '+p:''}` }
-function nomNetParts(n){ const ex=[],tx=[]; n.L.forEach(l=>{ if(l.tipo!=='devengo'||l.imp==null) return; const G=nomGroup(l); ((G.k==='dietas'||G.k==='km')&&!/no exenta|cotz|cotiza/i.test(l.con)?ex:tx).push([G,l.imp]) });
+function nomNetParts(n){ const ex=[],tx=[]; const FJ=NG.find(g=>g.k==='fijo'); n.L.forEach(l=>{ if(l.tipo!=='devengo'||l.imp==null) return; let G=nomGroup(l); if(['base','prod','vol'].includes(G.k)) G=FJ; ((G.k==='dietas'||G.k==='km')&&!/no exenta|cotz|cotiza/i.test(l.con)?ex:tx).push([G,l.imp]) });
   const base=tx.reduce((s,x)=>s+x[1],0); const rate=base?n.ded/base:0; const o={};
   tx.forEach(([G,v])=>{ (o[G.k]||(o[G.k]={G,v:0})).v+=v*(1-rate) }); ex.forEach(([G,v])=>{ (o[G.k]||(o[G.k]={G,v:0})).v+=v }); return o }
 function netAgg(list){ const o={}; list.forEach(n=>{ const p=nomNetParts(n); for(const k in p){ (o[k]||(o[k]={G:p[k].G,v:0})).v+=p[k].v } }); return o }
