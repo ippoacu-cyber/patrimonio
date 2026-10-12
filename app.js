@@ -107,7 +107,7 @@ async function pull(){
   catch(e){ dlog('Descarga del Excel falló ('+(dlu?'enlace directo':'Graph')+'): '+String(e.message||e).slice(0,100)); throw new Error('descarga_excel: '+(e.message||e)) }
   if(!r.ok){ dlog('Descarga del Excel: HTTP '+r.status); throw new Error('graph_'+r.status) }
   const st=stateFromWorkbook(await r.arrayBuffer());
-  S.prod=st.prod; S.debts=st.debts; S.cfg=st.cfg; S.log=st.log||[]; S.re=st.re||{}; S.reflows=st.reflows||[]; S.nom=st.nom||[]; S.mode='db'; dirty=false; lastSync=new Date();
+  S.prod=st.prod; S.debts=st.debts; S.cfg=st.cfg; S.log=st.log||[]; S.re=st.re||{}; S.reflows=st.reflows||[]; S.nom=st.nom||[]; S.cal=st.cal||[]; S.mode='db'; dirty=false; lastSync=new Date();
   setStatus('Sincronizado '+lastSync.toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'}), true); render();
 }
 async function push(force=false){
@@ -400,7 +400,7 @@ function renderMas(){
   $('#imp').onchange=async ev=>{ const file=ev.target.files[0]; if(!file) return; const msg=$('#impmsg');
     try{ const st=stateFromWorkbook(await file.arrayBuffer());
       if(!confirm(`Se sustituirán tus datos por ${Object.keys(st.prod).length} productos. ¿Continuar?`)) return;
-      S.prod=st.prod; S.debts=st.debts; S.cfg=st.cfg; S.re=st.re||{}; S.reflows=st.reflows||[]; if((st.nom||[]).length) S.nom=st.nom; S.log=(st.log&&st.log.length?st.log:S.log)||[]; logChange('Importar Excel completo','datos','',file.name,`${Object.keys(st.prod).length} productos`,{origen:'Importación'}); render(); await push(true); toast('Datos importados y guardados en OneDrive');
+      S.prod=st.prod; S.debts=st.debts; S.cfg=st.cfg; S.re=st.re||{}; S.reflows=st.reflows||[]; if((st.nom||[]).length) S.nom=st.nom; if((st.cal||[]).length) S.cal=st.cal; S.log=(st.log&&st.log.length?st.log:S.log)||[]; logChange('Importar Excel completo','datos','',file.name,`${Object.keys(st.prod).length} productos`,{origen:'Importación'}); render(); await push(true); toast('Datos importados y guardados en OneDrive');
     }catch(e){ msg.textContent='No se ha podido leer el archivo. Usa un Excel exportado desde la app.' } ev.target.value='' };
   $('#fcfg').onsubmit=e=>{e.preventDefault(); const f=new FormData(e.target); S.cfg.ipc=+f.get('ipc'); S.cfg.msci=f.get('msci')===''?null:+f.get('msci'); S.cfg.mscref=String(f.get('mscref')||'').trim(); S.cfg.perdidasAno=f.get('pano')===''?null:+f.get('pano'); S.cfg.perdidas=f.get('perd')===''?null:+f.get('perd'); S.cfg.sp500=f.get('sp')===''?null:+f.get('sp'); S.cfg.sp500ref=String(f.get('spref')||'').trim(); S.cfg.avisos=String(f.get('avisos')).split('\n').map(s=>s.trim()).filter(Boolean); logChange('Cambiar ajustes','ajustes','','',`Inflación ${S.cfg.ipc} % · ${S.cfg.avisos.length} avisos`); schedule(); render(); toast('Ajustes guardados')};
 }
@@ -1982,7 +1982,7 @@ renderSalario=function(){
   <div class="card"><div class="card-h">${SALY==='todo'?'Año a año':'Mes a mes'} <small>toca una barra</small></div><div class="chartbox sm"><canvas id="salchart" aria-label="Neto, IRPF y Seguridad Social"></canvas></div>
     <div class="legend"><span><i style="background:${NETC}"></i>Neto</span><span><i style="background:${NCOL.irpf}"></i>IRPF</span><span><i style="background:${NCOL.ss}"></i>Seg. Social</span></div></div>
   <div class="card"><div class="card-h">Todas tus nóminas <small>toca un mes</small></div>${calHtml(all,SALY==='todo'?years:[SALY])}</div>
-  ${horaHtml(all)}${extrasHtml(all,SALY==='todo'?years:[SALY])}${netHtml(list)}<div class="card"><div class="card-h">De dónde sale tu bruto</div>${grpBars(list,true)}</div>
+  ${horaHtml(all)}${restoHtml()}${extrasHtml(all,SALY==='todo'?years:[SALY])}${netHtml(list)}<div class="card"><div class="card-h">De dónde sale tu bruto</div>${grpBars(list,true)}</div>
   <div class="card"><div class="card-h">A dónde van los descuentos</div>${grpBars(list,false)}</div>
   <p class="hint">Todo se puede tocar para ver el detalle. Los importes se guardan solo en tu Excel de OneDrive.</p>`;
   el.querySelectorAll('[data-saly]').forEach(b=>b.onclick=()=>{ SALY=b.dataset.saly; renderSalario() });
@@ -2128,6 +2128,35 @@ function drawNetChart(){ if(!window.Chart) return; const cv=$('#netchart'); if(!
     plugins:{legend:{display:false},tooltip:{filter:c=>Math.abs(c.parsed.y)>0.005,callbacks:{label:tipLabel,footer:i=>{ const r=rows[i[0].dataIndex]; return 'Neto: '+eur(Object.values(r.o).reduce((s,x)=>s+x.v,0),2) }}}}}}) }
 const _dsc=drawSalChart; drawSalChart=function(){ _dsc(); drawNetChart() };
 const _explain3=explain; explain=function(k,c){ if(k==='net_grp'){ const g=NG.find(x=>x.k===c.k)||NGO; return {t:`${c.l} en tu neto`,v:eur(c.v,2),what:g.w,you:`Aporta <b>${eur(c.v,2)}</b> netos, el ${pc1(c.share)} de lo que te llegó a la cuenta${SALY==='todo'?'':' en '+SALY}.`,tip:'Estimado: el IRPF y la Seguridad Social de cada nómina se reparten en proporción entre los conceptos que tributan.'} } return _explain3(k,c) };
+
+
+/* ================== V14: SALARIO · findes y festivos que quedan en el año ================== */
+// El calendario (festivos) vive en tu Excel, hoja "Calendario" (fecha, tipo, nombre). Se recalcula cada día al abrir la app.
+S.cal=S.cal||[];
+function calFromSheet(rows){ const ds=v=> typeof v==='number' ? new Date(Math.round((v-25569)*864e5)).toISOString().slice(0,10) : String(v).slice(0,10); return rows.filter(r=>r.fecha).map(r=>({f:ds(r.fecha),tipo:String(r.tipo||'festivo').toLowerCase(),nombre:String(r.nombre||'')})).sort((a,b)=>a.f<b.f?-1:1) }
+const _sfw2=stateFromWorkbook; stateFromWorkbook=function(buf){ const st=_sfw2(buf); try{ const wb=XLSX.read(buf,{type:'array'}); if(wb.Sheets.Calendario) st.cal=calFromSheet(XLSX.utils.sheet_to_json(wb.Sheets.Calendario,{defval:''})) }catch(e){} return st };
+const _wfs2=workbookFromState; workbookFromState=function(){ const buf=_wfs2(); if(!(S.cal||[]).length) return buf; const wb=XLSX.read(buf,{type:'array'}); XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(S.cal.map(c=>({fecha:c.f,tipo:c.tipo,nombre:c.nombre}))),'Calendario'); return XLSX.write(wb,{type:'array',bookType:'xlsx'}) };
+const _iu2=importUpdate; importUpdate=async function(file){ const buf=await file.arrayBuffer(); const r=await _iu2({arrayBuffer:async()=>buf,name:file.name}); try{ const wb=XLSX.read(buf,{type:'array'}); if(wb.Sheets.Calendario){ const L=calFromSheet(XLSX.utils.sheet_to_json(wb.Sheets.Calendario,{defval:''})); if(L.length){ const ys=new Set(L.map(c=>c.f.slice(0,4))); S.cal=(S.cal||[]).filter(c=>!ys.has(c.f.slice(0,4))).concat(L).sort((a,b)=>a.f<b.f?-1:1); logChange('Importar calendario','salario','','Calendario',`${L.length} días`,{origen:'Importación'}) } } }catch(e){} return r };
+function iso(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0') }
+function restoAno(){ const hoy=new Date(); const y=hoy.getFullYear(); const cal=(S.cal||[]).filter(c=>c.f.slice(0,4)===String(y)); const fest=new Map(cal.filter(c=>c.tipo.startsWith('fest')).map(c=>[c.f,c.nombre]));
+  const out=[]; for(let d=new Date(y,hoy.getMonth(),hoy.getDate()); d.getFullYear()===y; d.setDate(d.getDate()+1)){ const k=iso(d); const md=k.slice(5); if(md==='01-01'||md==='12-31') continue; if(fest.has(k)) out.push({f:k,t:'festivo',n:fest.get(k)||'Festivo'}); else if(d.getDay()===6) out.push({f:k,t:'sabado',n:'Sábado'}) }
+  return {y,cal:cal.length,dias:out} }
+function precioFinde(){ let best=null; (S.nom||[]).forEach(n=>n.L.forEach(l=>{ if(l.tipo==='devengo'&&l.pre!=null&&l.imp>0&&nomGroup(l).k==='finde'&&(!best||n.id>=best.id)) best={id:n.id,p:l.pre} })); if(!best) return null; const ps=(S.nom||[]).flatMap(n=>n.L.filter(l=>nomGroup(l).k==='finde'&&l.pre!=null&&l.imp>0).map(l=>l.pre)); const base=Math.min(...ps); return best.p>=base*1.8?best.p/2:best.p }
+function tasaNeta(){ const all=S.nom||[]; if(!all.length) return null; const y=nomY(all[all.length-1]); const ns=all.filter(n=>nomY(n)===y); const t=nomTot(ns); const bcc=ns.reduce((s,n)=>s+(n.bcc||0),0); return {irpf:t.birpf?t.irpf/t.birpf:0, ss:bcc?t.ss/bcc:0, y} }
+function restoHtml(){ const R=restoAno(); if(!R.cal) return `<div class="card"><div class="card-h">Sábados y festivos que quedan</div><p class="hint">Añade los festivos de ${R.y} en la hoja <b>Calendario</b> del Excel (columnas fecha, tipo, nombre) e impórtalo.</p></div>`;
+  const p=precioFinde(); const tn=tasaNeta(); const sab=R.dias.filter(d=>d.t==='sabado'), fes=R.dias.filter(d=>d.t==='festivo'); const n=R.dias.length; const bruto=p?n*p:null; const neto=bruto!=null&&tn?bruto*(1-tn.irpf-tn.ss):null;
+  const f=d=>{ const x=new Date(d+'T12:00'); return x.getDate()+' '+MESES[x.getMonth()].slice(0,3) };
+  const byM={}; R.dias.forEach(d=>{ const m=+d.f.slice(5,7)-1; (byM[m]||(byM[m]=[])).push(d) });
+  return `<div class="card"><div class="card-h">Sábados y festivos que quedan · ${R.y} <small>actualizado hoy</small></div>
+    <div class="tiles three"><div class="tile"${xi('resto',{k:'sab',n:sab.length,p,y:R.y})}><span>Sábados</span><b class="num">${sab.length}</b></div><div class="tile"${xi('resto',{k:'fes',n:fes.length,p,y:R.y,list:fes.map(d=>f(d.f)+' · '+d.n)})}><span>Festivos</span><b class="num">${fes.length}</b></div><div class="tile"${xi('resto',{k:'tot',n,p,bruto,neto,tn,y:R.y})}><span>Total días</span><b class="num">${n}</b></div></div>
+    ${bruto!=null?`<div class="hh"${xi('resto',{k:'tot',n,p,bruto,neto,tn,y:R.y})} style="margin-top:12px"><b class="num">${eur(bruto,2)}</b><span>brutos si los trabajas todos (${n} × ${eur(p,2)})</span>${neto!=null?`<small>≈ ${eur(neto,2)} netos en nómina</small>`:''}</div>`:'<p class="hint">Todavía no hay ningún pago del plus fin de semana para saber el precio por día.</p>'}
+    <details class="kw"><summary>Ver los días <small>${n}</small></summary>${Object.entries(byM).map(([m,ds])=>`<div class="sublab">${MESES[m]}</div><div class="dchips">${ds.map(d=>`<span class="dchip ${d.t}">${f(d.f)}${d.t==='festivo'?' · '+esc(d.n):''}</span>`).join('')}</div>`).join('')}</details>
+    <p class="hint">No cuenta el 1 de enero ni el 31 de diciembre. Los festivos salen de la hoja Calendario de tu Excel; los domingos no se cuentan.</p></div>` }
+const _explain4=explain; explain=function(k,c){ if(k==='resto'){ const e=v=>v==null?'—':eur(v,2);
+  if(c.k==='sab') return {t:`Sábados que quedan en ${c.y}`,v:String(c.n),what:'Sábados desde hoy hasta el 30 de diciembre que no son festivo (si un festivo cae en sábado, cuenta como festivo).',you:`${c.n} sábados${c.p?` × ${e(c.p)} = <b>${e(c.n*c.p)}</b> brutos`:''}`,tip:'Se recalcula cada día al abrir la app.'};
+  if(c.k==='fes') return {t:`Festivos que quedan en ${c.y}`,v:String(c.n),what:'Festivos de tu calendario (hoja Calendario del Excel) desde hoy hasta el 30 de diciembre.',you:(c.list||[]).join('<br>')+(c.p?`<br><br>${c.n} × ${e(c.p)} = <b>${e(c.n*c.p)}</b> brutos`:''),tip:'Si algún festivo se paga a precio doble, el importe real sería mayor.'};
+  return {t:'Si trabajas todos',v:e(c.bruto),what:'Lo que cobrarías en nómina por el plus fin de semana si trabajaras todos los sábados y festivos que quedan.',you:`${c.n} días × ${e(c.p)} (último precio por día de tus nóminas) = <b>${e(c.bruto)}</b> brutos${c.neto!=null?`<br>Neto estimado: ${e(c.bruto)} × (1 − ${pc1(100*c.tn.irpf)} IRPF − ${pc1(100*c.tn.ss)} SS de ${c.tn.y}) = <b>${e(c.neto)}</b>`:''}`,tip:'Estimado: usa tu retención media del año; el IRPF real de esos días puede ser algo mayor porque se suman a lo que ya cobras.'} }
+  return _explain4(k,c) };
 
 /* ---------- arranque ---------- */
 document.getElementById('loginbtn').onclick=()=>login();
